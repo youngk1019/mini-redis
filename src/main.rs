@@ -1,24 +1,31 @@
-// Uncomment this block to pass the first stage
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::net::TcpListener;
 
-fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
+struct Encoder;
 
-    // Uncomment this block to pass the first stage
-    //
+impl Encoder {
+    pub fn encode_string(s: impl Into<String>) -> String {
+        format!("+{}\r\n", s.into())
+    }
+}
+
+fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                let resp = String::from("+PONG\r\n");
-                stream.write_all(resp.as_bytes()).unwrap();
+                loop {
+                    let mut reader = std::io::BufReader::new(&stream);
+                    let mut buf = vec![];
+                    match reader.read_until(b'\n', &mut buf) {
+                        Ok(0) => break,
+                        Ok(_) => stream.write_all(Encoder::encode_string("PONG").as_bytes()).unwrap(),
+                        Err(e) => panic!("{}", e),
+                    }
+                }
             }
-            Err(e) => {
-                println!("error: {}", e);
-            }
+            Err(e) => panic!("{}", e),
         }
     }
 }
