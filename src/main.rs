@@ -1,21 +1,11 @@
-use tokio::net::{TcpListener, TcpStream};
-use tokio::io;
+use tokio::net::TcpListener;
 
-use redis_starter_rust::connection;
+use redis_starter_rust::{listener, db};
+
 
 #[tokio::main]
-async fn main() -> Result<(), io::Error> {
+async fn main() -> redis_starter_rust::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:6379").await?;
-    loop {
-        let (stream, _) = listener.accept().await?;
-        tokio::spawn(async move {
-            let _ = handler(stream).await;
-        });
-    }
-}
-
-async fn handler(stream: TcpStream) -> redis_starter_rust::Result<()> {
-    let mut con = connection::Connection::new(stream);
-    con.run().await?;
-    Ok(())
+    let db = db::DB::new();
+    listener::Listener::new(db, listener).run().await
 }

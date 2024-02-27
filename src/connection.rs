@@ -8,11 +8,13 @@ use tokio::net::TcpStream;
 use async_trait::async_trait;
 use crate::resp::{self, Type};
 use crate::cmd::Command;
+use crate::db::DB;
 
 #[derive(Debug)]
 pub struct Connection {
     stream: BufWriter<TcpStream>,
     buffer: BytesMut,
+    db: DB,
 }
 
 #[async_trait]
@@ -22,10 +24,11 @@ pub(crate) trait Applicable {
 
 impl Connection {
     /// Create a new `Connection` instance.
-    pub fn new(stream: TcpStream) -> Connection {
+    pub fn new(stream: TcpStream, db: DB) -> Connection {
         Connection {
             stream: BufWriter::new(stream),
             buffer: BytesMut::with_capacity(4 * 1024),
+            db,
         }
     }
 
@@ -69,6 +72,10 @@ impl Connection {
             Err(resp::Error::Incomplete) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    pub(crate) fn get_db(&mut self) -> &mut DB {
+        &mut self.db
     }
 }
 
