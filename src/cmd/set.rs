@@ -4,7 +4,7 @@ use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 use crate::connection::{Applicable, Connection};
 use crate::encoder::Encoder;
-use crate::parser::Parse;
+use crate::parser::{self, Parse};
 use crate::resp::Type;
 
 #[derive(Debug, PartialEq)]
@@ -19,7 +19,20 @@ impl TryFrom<&mut Parse> for Set {
     fn try_from(parse: &mut Parse) -> crate::Result<Self> {
         let key = parse.next_string()?;
         let value = parse.next_bytes()?;
-        let expire = None;
+        let mut expire = None;
+        match parse.next_string() {
+            Ok(s) if s.to_uppercase() == "EX" => {
+                let secs = parse.next_int()?;
+                expire = Some(Duration::from_secs(secs));
+            }
+            Ok(s) if s.to_uppercase() == "PX" => {
+                let ms = parse.next_int()?;
+                expire = Some(Duration::from_millis(ms));
+            }
+            Ok(_) => return Err("currently `SET` only supports the expiration option".into()),
+            Err(parser::Error::EndOfStream) => {}
+            Err(err) => return Err(err.into()),
+        }
         Ok(Set { key, value, expire })
     }
 }
