@@ -1,14 +1,7 @@
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::io;
 
-struct Encoder;
-
-impl Encoder {
-    pub fn encode_string(s: impl Into<String>) -> String {
-        format!("+{}\r\n", s.into())
-    }
-}
+use redis_starter_rust::connection;
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
@@ -16,19 +9,13 @@ async fn main() -> Result<(), io::Error> {
     loop {
         let (stream, _) = listener.accept().await?;
         tokio::spawn(async move {
-            let _ = connection(stream).await;
+            let _ = handler(stream).await;
         });
     }
 }
 
-async fn connection(stream: TcpStream) -> Result<(), io::Error> {
-    let mut stream = BufReader::new(stream);
-    let mut line = String::new();
-    while stream.read_line(&mut line).await? > 0 {
-        if line.to_ascii_uppercase().starts_with("PING") {
-            stream.write_all(Encoder::encode_string("PONG").as_bytes()).await?;
-        }
-        line.clear();
-    }
+async fn handler(stream: TcpStream) -> redis_starter_rust::Result<()> {
+    let mut con = connection::Connection::new(stream);
+    con.run().await?;
     Ok(())
 }
