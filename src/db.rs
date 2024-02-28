@@ -36,6 +36,7 @@ struct Entry {
 #[allow(dead_code)]
 pub struct Role {
     role: ReplicationType,
+    master_host: String,
     id: String,
     offset: u64,
 }
@@ -48,12 +49,12 @@ enum ReplicationType {
 }
 
 impl DB {
-    pub fn new() -> DB {
+    pub fn new(role: Option<Role>) -> DB {
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 entries: HashMap::new(),
                 expirations: BTreeSet::new(),
-                role: Role::default(),
+                role: role.unwrap_or_default(),
                 shutdown: false,
             }),
             background_task: Notify::new(),
@@ -165,10 +166,22 @@ async fn purge_expired_tasks(shared: Arc<Shared>) {
     }
 }
 
+impl Role {
+    pub fn new(host: String) -> Role {
+        Role {
+            role: ReplicationType::Slave,
+            master_host: host,
+            id: "".into(),
+            offset: 0,
+        }
+    }
+}
+
 impl Default for Role {
     fn default() -> Self {
         Role {
             role: ReplicationType::Master,
+            master_host: "".into(),
             id: "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".into(),
             offset: 0,
         }
