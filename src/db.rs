@@ -199,6 +199,14 @@ impl Role {
     pub fn port(&self) -> Option<usize> {
         self.port.clone()
     }
+
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    pub fn id(&self) -> String {
+        self.id.clone()
+    }
 }
 
 impl Default for Role {
@@ -268,6 +276,10 @@ async fn replica_connect(mut con: connection::Connection) {
             Ok(_) => {}
             _ => { continue; }
         };
+        match handshake_psync(&mut con).await {
+            Ok(_) => {}
+            _ => { continue; }
+        };
     }
 }
 
@@ -332,5 +344,30 @@ async fn handshake_replconf(con: &mut connection::Connection) -> crate::Result<(
             Ok(())
         }
         _ => { Err("read frame error".into()) }
+    }
+}
+
+async fn handshake_psync(con: &mut connection::Connection) -> crate::Result<()> {
+    let psync_order = resp::Type::Array(vec![
+        resp::Type::BulkString("PSYNC".into()),
+        resp::Type::BulkString("?".into()),
+        resp::Type::BulkString("-1".into()),
+    ]);
+    con.write_all(Encoder::encode(&psync_order).as_slice()).await?;
+    con.flush().await?;
+    match con.read_frame().await {
+        Ok(maybe_frame) => {
+            let frame = maybe_frame.ok_or_else(|| "read frame error".to_string())?;
+            let mut parse = Parse::new(frame)?;
+            let info = parse.next_string()?.to_uppercase();
+            if info != "FULLRESYNC" {
+                return Err("read frame error".into());
+            }
+            let _replid = parse.next_string()?;
+            let _offset = parse.next_int()?;
+            parse.finish()?;
+            Ok(())
+        }
+        _ => Err("read frame error".into())
     }
 }

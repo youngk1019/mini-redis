@@ -4,6 +4,7 @@ mod set;
 mod get;
 mod info;
 mod replconf;
+mod psync;
 
 
 use crate::resp::Type;
@@ -21,6 +22,7 @@ pub enum Command {
     Get(get::Get),
     Info(info::Info),
     ReplConf(replconf::ReplConf),
+    PSync(psync::PSync),
 }
 
 
@@ -36,6 +38,7 @@ impl TryFrom<Type> for Command {
             "GET" => Command::Get((&mut parse).try_into()?),
             "INFO" => Command::Info((&mut parse).try_into()?),
             "REPLCONF" => Command::ReplConf((&mut parse).try_into()?),
+            "PSYNC" => Command::PSync((&mut parse).try_into()?),
             _ => unimplemented!(),
         };
         parse.finish()?;
@@ -53,6 +56,7 @@ impl Applicable for Command {
             Command::Get(get) => get.apply(dst).await,
             Command::Info(info) => info.apply(dst).await,
             Command::ReplConf(replconf) => replconf.apply(dst).await,
+            Command::PSync(psync) => psync.apply(dst).await,
         }
     }
 }
