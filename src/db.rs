@@ -6,6 +6,7 @@ use bytes::Bytes;
 use tokio::sync::Notify;
 use tokio::time;
 use tokio::time::Instant;
+use rand::{distributions::Alphanumeric, Rng};
 
 #[derive(Debug, Clone)]
 pub struct DB {
@@ -171,7 +172,7 @@ impl Role {
         Role {
             role: ReplicationType::Slave,
             master_host: host,
-            id: "".into(),
+            id: generate_id(),
             offset: 0,
         }
     }
@@ -182,10 +183,25 @@ impl Default for Role {
         Role {
             role: ReplicationType::Master,
             master_host: "".into(),
-            id: "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".into(),
+            id: generate_id(),
             offset: 0,
         }
     }
+}
+
+fn generate_id() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .filter_map(|b| {
+            let c = b as char;
+            if c.is_ascii_lowercase() || c.is_ascii_digit() {
+                Some(c)
+            } else {
+                None
+            }
+        })
+        .take(40)
+        .collect()
 }
 
 impl fmt::Display for ReplicationType {
@@ -200,6 +216,6 @@ impl fmt::Display for ReplicationType {
 
 impl fmt::Display for Role {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "role:{}", self.role)
+        write!(fmt, "role:{}\nmaster_replid:{}\nmaster_repl_offset:{}", self.role, self.id, self.offset)
     }
 }

@@ -26,3 +26,4 @@ tokio = { version = "1.23.0", features = ["full"] } # async networking
 atoi = "0.4.0"                                      # convert string to integer
 async-trait = "0.1"                                 # async trait
 clap = { version = "3.0", features = ["derive"] }   # command line argument parsing
+rand = "0.8.4"                                      # random number generation
