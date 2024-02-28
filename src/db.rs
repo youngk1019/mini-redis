@@ -11,6 +11,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use crate::encoder::Encoder;
 use crate::resp;
+use crate::connection;
+use crate::parser::Parse;
 
 #[derive(Debug, Clone)]
 pub struct DB {
@@ -41,6 +43,7 @@ struct Entry {
 #[allow(dead_code)]
 pub struct Role {
     role: ReplicationType,
+    port: Option<usize>,
     master_ip: Option<String>,
     master_port: Option<usize>,
     id: String,
@@ -65,10 +68,11 @@ impl DB {
             background_task: Notify::new(),
         });
         tokio::spawn(purge_expired_tasks(shared.clone()));
-        if shared.role().role == ReplicationType::Slave {
-            tokio::spawn(replica_connect(shared.clone()));
+        let db = DB { shared };
+        if db.role().role == ReplicationType::Slave {
+            tokio::spawn(build_replica_connect(db.clone()));
         }
-        DB { shared }
+        db
     }
 
     pub(crate) fn get(&self, key: String) -> Option<Bytes> {
@@ -124,7 +128,7 @@ impl DB {
     }
 
     pub(crate) fn role(&self) -> Role {
-        self.shared.role()
+        self.shared.state.lock().unwrap().role.clone()
     }
 }
 
@@ -155,10 +159,6 @@ impl Shared {
         None
     }
 
-    fn role(&self) -> Role {
-        self.state.lock().unwrap().role.clone()
-    }
-
     fn is_shutdown(&self) -> bool {
         self.state.lock().unwrap().shutdown
     }
@@ -178,11 +178,12 @@ async fn purge_expired_tasks(shared: Arc<Shared>) {
 }
 
 impl Role {
-    pub fn new(ip: Option<String>, port: Option<usize>) -> Role {
+    pub fn new(port: Option<usize>, master_ip: Option<String>, master_port: Option<usize>) -> Role {
         Role {
             role: ReplicationType::Slave,
-            master_ip: ip,
-            master_port: port,
+            port,
+            master_ip,
+            master_port,
             id: generate_id(),
             offset: 0,
         }
@@ -194,12 +195,17 @@ impl Role {
             ReplicationType::Slave => Some((self.master_ip.clone()?, self.master_port?)),
         }
     }
+
+    pub fn port(&self) -> Option<usize> {
+        self.port.clone()
+    }
 }
 
 impl Default for Role {
     fn default() -> Self {
         Role {
             role: ReplicationType::Master,
+            port: None,
             master_ip: None,
             master_port: None,
             id: generate_id(),
@@ -239,18 +245,92 @@ impl fmt::Display for Role {
     }
 }
 
-async fn replica_connect(shared: Arc<Shared>) {
-    let ping_order = resp::Type::Array(vec![
-        resp::Type::BulkString("PING".into()),
-    ]);
-    let role = shared.role();
+async fn build_replica_connect(db: DB) {
+    let role = db.role();
     if let Some((ip, port)) = role.master_info() {
         let master_address = format!("{}:{}", ip, port);
         match TcpStream::connect(master_address).await {
-            Ok(mut stream) => {
-                let _ = stream.write_all(Encoder::encode(&ping_order).as_slice()).await;
+            Ok(stream) => {
+                replica_connect(connection::Connection::new(stream, db)).await;
             }
             _ => {}
         }
+    }
+}
+
+async fn replica_connect(mut con: connection::Connection) {
+    loop {
+        match handshake_ping(&mut con).await {
+            Ok(_) => {}
+            _ => { continue; }
+        };
+        match handshake_replconf(&mut con).await {
+            Ok(_) => {}
+            _ => { continue; }
+        };
+    }
+}
+
+async fn handshake_ping(con: &mut connection::Connection) -> crate::Result<()> {
+    let ping_order = resp::Type::Array(vec![
+        resp::Type::BulkString("PING".into()),
+    ]);
+    con.write_all(Encoder::encode(&ping_order).as_slice()).await?;
+    con.flush().await?;
+    match con.read_frame().await {
+        Ok(maybe_frame) => {
+            let frame = maybe_frame.ok_or_else(|| "read frame error".to_string())?;
+            let mut parse = Parse::new(frame)?;
+            let info = parse.next_string()?.to_uppercase();
+            if info != "PONG" {
+                return Err("read frame error".into());
+            }
+            parse.finish()?;
+            Ok(())
+        }
+        _ => Err("read frame error".into())
+    }
+}
+
+async fn handshake_replconf(con: &mut connection::Connection) -> crate::Result<()> {
+    let port = con.get_db().role().port().ok_or_else(|| "port not found".to_string())?;
+    let port_order = resp::Type::Array(vec![
+        resp::Type::BulkString("REPLCONF".into()),
+        resp::Type::BulkString("listening-port".into()),
+        resp::Type::BulkString(Bytes::from(port.to_string())),
+    ]);
+    con.write_all(Encoder::encode(&port_order).as_slice()).await?;
+    con.flush().await?;
+    match con.read_frame().await {
+        Ok(maybe_frame) => {
+            let frame = maybe_frame.ok_or_else(|| "read frame error".to_string())?;
+            let mut parse = Parse::new(frame)?;
+            let info = parse.next_string()?.to_uppercase();
+            if info != "OK" {
+                return Err("read frame error".into());
+            }
+            parse.finish()?;
+        }
+        _ => { return Err("read frame error".into()); }
+    }
+    let capa_order = resp::Type::Array(vec![
+        resp::Type::BulkString("REPLCONF".into()),
+        resp::Type::BulkString("capa".into()),
+        resp::Type::BulkString("psync2".into()),
+    ]);
+    con.write_all(Encoder::encode(&capa_order).as_slice()).await?;
+    con.flush().await?;
+    match con.read_frame().await {
+        Ok(maybe_frame) => {
+            let frame = maybe_frame.ok_or_else(|| "read frame error".to_string())?;
+            let mut parse = Parse::new(frame)?;
+            let info = parse.next_string()?.to_uppercase();
+            if info != "OK" {
+                return Err("read frame error".into());
+            }
+            parse.finish()?;
+            Ok(())
+        }
+        _ => { Err("read frame error".into()) }
     }
 }

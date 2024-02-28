@@ -44,7 +44,7 @@ impl Connection {
         }
     }
 
-    async fn read_frame(&mut self) -> crate::Result<Option<Type>> {
+    pub async fn read_frame(&mut self) -> crate::Result<Option<Type>> {
         loop {
             if let Some(frame) = self.parse_frame()? {
                 return Ok(Some(frame));

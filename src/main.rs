@@ -19,7 +19,7 @@ async fn main() -> redis_starter_rust::Result<()> {
     let listener = TcpListener::bind(format!("127.0.0.1:{}", cfg.port)).await?;
     let mut role: Option<db::Role> = None;
     if let Some(replica) = cfg.replica {
-        role = Some(db::Role::new(Some(replica[0].clone()), Some(replica[1].parse().unwrap())));
+        role = Some(db::Role::new(Some(cfg.port),Some(replica[0].clone()), Some(replica[1].parse().unwrap())));
     }
     let db = db::DB::new(role);
     listener::Listener::new(db, listener).run().await

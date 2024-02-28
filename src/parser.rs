@@ -18,7 +18,7 @@ impl Parse {
     pub(crate) fn new(val: Type) -> Result<Parse, Error> {
         let array = match val {
             Type::Array(array) => array,
-            val => return Err(format!("protocol error; expected array, got {:?}", val).into()),
+            val => vec![val],
         };
 
         Ok(Parse {

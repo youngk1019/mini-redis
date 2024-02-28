@@ -3,6 +3,7 @@ mod echo;
 mod set;
 mod get;
 mod info;
+mod replconf;
 
 
 use crate::resp::Type;
@@ -19,6 +20,7 @@ pub enum Command {
     Set(set::Set),
     Get(get::Get),
     Info(info::Info),
+    ReplConf(replconf::ReplConf),
 }
 
 
@@ -27,12 +29,13 @@ impl TryFrom<Type> for Command {
     fn try_from(value: Type) -> crate::Result<Self> {
         let mut parse = Parse::new(value)?;
         let command_name = parse.next_string()?.to_uppercase();
-        let command = match &command_name[..] {
+        let command = match command_name.as_str() {
             "PING" => Command::Ping((&mut parse).try_into()?),
             "ECHO" => Command::Echo((&mut parse).try_into()?),
             "SET" => Command::Set((&mut parse).try_into()?),
             "GET" => Command::Get((&mut parse).try_into()?),
             "INFO" => Command::Info((&mut parse).try_into()?),
+            "REPLCONF" => Command::ReplConf((&mut parse).try_into()?),
             _ => unimplemented!(),
         };
         parse.finish()?;
@@ -49,6 +52,7 @@ impl Applicable for Command {
             Command::Set(set) => set.apply(dst).await,
             Command::Get(get) => get.apply(dst).await,
             Command::Info(info) => info.apply(dst).await,
+            Command::ReplConf(replconf) => replconf.apply(dst).await,
         }
     }
 }
