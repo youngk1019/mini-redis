@@ -7,6 +7,10 @@ use tokio::sync::Notify;
 use tokio::time;
 use tokio::time::Instant;
 use rand::{distributions::Alphanumeric, Rng};
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
+use crate::encoder::Encoder;
+use crate::resp;
 
 #[derive(Debug, Clone)]
 pub struct DB {
@@ -37,13 +41,13 @@ struct Entry {
 #[allow(dead_code)]
 pub struct Role {
     role: ReplicationType,
-    master_host: String,
+    master_ip: Option<String>,
+    master_port: Option<usize>,
     id: String,
     offset: u64,
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq)]
 enum ReplicationType {
     Master,
     Slave,
@@ -61,6 +65,9 @@ impl DB {
             background_task: Notify::new(),
         });
         tokio::spawn(purge_expired_tasks(shared.clone()));
+        if shared.role().role == ReplicationType::Slave {
+            tokio::spawn(replica_connect(shared.clone()));
+        }
         DB { shared }
     }
 
@@ -117,8 +124,7 @@ impl DB {
     }
 
     pub(crate) fn role(&self) -> Role {
-        let state = self.shared.state.lock().unwrap();
-        state.role.clone()
+        self.shared.role()
     }
 }
 
@@ -149,6 +155,10 @@ impl Shared {
         None
     }
 
+    fn role(&self) -> Role {
+        self.state.lock().unwrap().role.clone()
+    }
+
     fn is_shutdown(&self) -> bool {
         self.state.lock().unwrap().shutdown
     }
@@ -168,12 +178,20 @@ async fn purge_expired_tasks(shared: Arc<Shared>) {
 }
 
 impl Role {
-    pub fn new(host: String) -> Role {
+    pub fn new(ip: Option<String>, port: Option<usize>) -> Role {
         Role {
             role: ReplicationType::Slave,
-            master_host: host,
+            master_ip: ip,
+            master_port: port,
             id: generate_id(),
             offset: 0,
+        }
+    }
+
+    pub fn master_info(&self) -> Option<(String, usize)> {
+        match self.role {
+            ReplicationType::Master => None,
+            ReplicationType::Slave => Some((self.master_ip.clone()?, self.master_port?)),
         }
     }
 }
@@ -182,7 +200,8 @@ impl Default for Role {
     fn default() -> Self {
         Role {
             role: ReplicationType::Master,
-            master_host: "".into(),
+            master_ip: None,
+            master_port: None,
             id: generate_id(),
             offset: 0,
         }
@@ -217,5 +236,21 @@ impl fmt::Display for ReplicationType {
 impl fmt::Display for Role {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "role:{}\nmaster_replid:{}\nmaster_repl_offset:{}", self.role, self.id, self.offset)
+    }
+}
+
+async fn replica_connect(shared: Arc<Shared>) {
+    let ping_order = resp::Type::Array(vec![
+        resp::Type::BulkString("PING".into()),
+    ]);
+    let role = shared.role();
+    if let Some((ip, port)) = role.master_info() {
+        let master_address = format!("{}:{}", ip, port);
+        match TcpStream::connect(master_address).await {
+            Ok(mut stream) => {
+                let _ = stream.write_all(Encoder::encode(&ping_order).as_slice()).await;
+            }
+            _ => {}
+        }
     }
 }
