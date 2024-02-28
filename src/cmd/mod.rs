@@ -2,6 +2,7 @@ mod ping;
 mod echo;
 mod set;
 mod get;
+mod info;
 
 
 use crate::resp::Type;
@@ -17,6 +18,7 @@ pub enum Command {
     Echo(echo::Echo),
     Set(set::Set),
     Get(get::Get),
+    Info(info::Info),
 }
 
 
@@ -24,12 +26,13 @@ impl TryFrom<Type> for Command {
     type Error = crate::Error;
     fn try_from(value: Type) -> crate::Result<Self> {
         let mut parse = Parse::new(value)?;
-        let command_name = parse.next_string()?.to_lowercase();
+        let command_name = parse.next_string()?.to_uppercase();
         let command = match &command_name[..] {
-            "ping" => Command::Ping((&mut parse).try_into()?),
-            "echo" => Command::Echo((&mut parse).try_into()?),
-            "set" => Command::Set((&mut parse).try_into()?),
-            "get" => Command::Get((&mut parse).try_into()?),
+            "PING" => Command::Ping((&mut parse).try_into()?),
+            "ECHO" => Command::Echo((&mut parse).try_into()?),
+            "SET" => Command::Set((&mut parse).try_into()?),
+            "GET" => Command::Get((&mut parse).try_into()?),
+            "INFO" => Command::Info((&mut parse).try_into()?),
             _ => unimplemented!(),
         };
         parse.finish()?;
@@ -45,6 +48,7 @@ impl Applicable for Command {
             Command::Echo(echo) => echo.apply(dst).await,
             Command::Set(set) => set.apply(dst).await,
             Command::Get(get) => get.apply(dst).await,
+            Command::Info(info) => info.apply(dst).await,
         }
     }
 }

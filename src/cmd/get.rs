@@ -21,7 +21,7 @@ impl TryFrom<&mut Parse> for Get {
 #[async_trait]
 impl Applicable for Get {
     async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
-        let resp = match dst.get_db().get(&self.key) {
+        let resp = match dst.get_db().get(self.key) {
             Some(value) => Type::BulkString(value),
             None => Type::Null,
         };

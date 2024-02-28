@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap};
+use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use bytes::Bytes;
@@ -21,6 +22,7 @@ struct Shared {
 struct State {
     entries: HashMap<String, Entry>,
     expirations: BTreeSet<(Instant, String)>,
+    role: Role,
     shutdown: bool,
 }
 
@@ -30,12 +32,28 @@ struct Entry {
     expiration: Option<Instant>,
 }
 
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct Role {
+    role: ReplicationType,
+    id: String,
+    offset: u64,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+enum ReplicationType {
+    Master,
+    Slave,
+}
+
 impl DB {
     pub fn new() -> DB {
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 entries: HashMap::new(),
                 expirations: BTreeSet::new(),
+                role: Role::default(),
                 shutdown: false,
             }),
             background_task: Notify::new(),
@@ -44,9 +62,9 @@ impl DB {
         DB { shared }
     }
 
-    pub(crate) fn get(&self, key: &str) -> Option<Bytes> {
+    pub(crate) fn get(&self, key: String) -> Option<Bytes> {
         let state = self.shared.state.lock().unwrap();
-        state.entries.get(key).map(|entry| entry.data.clone())
+        state.entries.get(&key).map(|entry| entry.data.clone())
     }
 
     pub(crate) fn set(&self, key: String, value: Bytes, expire: Option<Duration>) {
@@ -81,6 +99,24 @@ impl DB {
         if notify {
             self.shared.background_task.notify_one();
         }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn del(&self, key: String) -> bool {
+        let mut state = self.shared.state.lock().unwrap();
+        if let Some(entry) = state.entries.remove(&key) {
+            if let Some(when) = entry.expiration {
+                state.expirations.remove(&(when, key));
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn role(&self) -> Role {
+        let state = self.shared.state.lock().unwrap();
+        state.role.clone()
     }
 }
 
@@ -126,5 +162,31 @@ async fn purge_expired_tasks(shared: Arc<Shared>) {
         } else {
             shared.background_task.notified().await;
         }
+    }
+}
+
+impl Default for Role {
+    fn default() -> Self {
+        Role {
+            role: ReplicationType::Master,
+            id: "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".into(),
+            offset: 0,
+        }
+    }
+}
+
+impl fmt::Display for ReplicationType {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        let repr = match self {
+            ReplicationType::Master => "master",
+            ReplicationType::Slave => "slave",
+        };
+        fmt.write_str(repr)
+    }
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "role:{}", self.role)
     }
 }

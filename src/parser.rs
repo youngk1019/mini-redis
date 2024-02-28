@@ -50,7 +50,6 @@ impl Parse {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn next_int(&mut self) -> Result<u64, Error> {
         use atoi::atoi;
         const MSG: &str = "protocol error; invalid number";
