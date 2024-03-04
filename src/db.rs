@@ -92,7 +92,7 @@ impl DB {
         shard.role.clone()
     }
 
-    pub async fn add_slave(&self, socket: String, con: &mut connection::Connection) -> crate::Result<Receiver<Bytes>> {
+    pub async fn add_slave(&self, key: String, con: &mut connection::Connection) -> crate::Result<Receiver<Bytes>> {
         let mut shard = self.shard.lock().await;
         // send RDB file to slave
         shard.engine.write_rdb().await?;
@@ -103,13 +103,13 @@ impl DB {
         con.flush().await?;
         // add slave to master
         let (tx, rx) = channel::<Bytes>(32);
-        shard.role.add_slave(socket, tx).await;
+        shard.role.add_slave(key, tx).await;
         Ok(rx)
     }
 
-    pub async fn delete_slave(&self, socket: &String) {
+    pub async fn delete_slave(&self, key: &String) {
         let mut shard = self.shard.lock().await;
-        shard.role.delete_slave(socket).await;
+        shard.role.delete_slave(key).await;
     }
 }
 

@@ -95,21 +95,21 @@ impl Role {
         }
     }
 
-    pub async fn add_slave(&mut self, socket: String, tx: mpsc::Sender<Bytes>) {
+    pub async fn add_slave(&mut self, key: String, tx: mpsc::Sender<Bytes>) {
         match &self.shard.role_type {
             Type::Master(info) => {
                 let mut slaves = info.slaves.write().await;
-                slaves.insert(socket, tx);
+                slaves.insert(key, tx);
             }
             Type::Slave(_) => {}
         }
     }
 
-    pub async fn delete_slave(&mut self, socket: &String) {
+    pub async fn delete_slave(&mut self, key: &String) {
         match &self.shard.role_type {
             Type::Master(info) => {
                 let mut slaves = info.slaves.write().await;
-                slaves.remove(socket);
+                slaves.remove(key);
             }
             Type::Slave(_) => {}
         }
@@ -154,7 +154,7 @@ impl fmt::Display for Type {
     }
 }
 
-fn generate_id() -> String {
+pub fn generate_id() -> String {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .filter_map(|b| {

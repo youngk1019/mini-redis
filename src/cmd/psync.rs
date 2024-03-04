@@ -33,10 +33,11 @@ impl Applicable for PSync {
     async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
         if let Some(socket) = dst.socket_addr() {
             let role = dst.db().role().await;
+            let key = socket + &*dst.id();
             let resp = Type::SimpleString(format!("FULLRESYNC {} {}", role.id(), role.offset()));
             dst.write_all(Encoder::encode(&resp).as_slice()).await?;
             let db = dst.db().clone();
-            let mut rx = db.add_slave(socket.clone(), dst).await?;
+            let mut rx = db.add_slave(key.clone(), dst).await?;
             let sender = async {
                 while let Some(data) = rx.recv().await {
                     dst.write_all(data.as_ref()).await?;
@@ -45,7 +46,7 @@ impl Applicable for PSync {
                 Ok(())
             };
             let _: crate::Result<()> = sender.await;
-            dst.db().delete_slave(&socket).await;
+            dst.db().delete_slave(&key).await;
         }
         Ok(())
     }

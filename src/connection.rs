@@ -9,6 +9,7 @@ use tokio::io;
 use crate::resp::{self, Type};
 use crate::cmd::Command;
 use crate::db::DB;
+use crate::replication;
 
 #[derive(Debug)]
 pub struct Connection {
@@ -17,6 +18,7 @@ pub struct Connection {
     db: DB,
     writeable: bool,
     port: Option<usize>,
+    id: Option<String>,
 }
 
 #[async_trait]
@@ -33,6 +35,7 @@ impl Connection {
             db,
             writeable,
             port: None,
+            id: None,
         }
     }
 
@@ -90,6 +93,11 @@ impl Connection {
         self.port = Some(port);
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn set_id(&mut self, id: String) {
+        self.id = Some(id);
+    }
+
     pub(crate) fn socket_addr(&self) -> Option<String> {
         match self.stream.get_ref().peer_addr() {
             Ok(addr) => {
@@ -101,6 +109,17 @@ impl Connection {
                 }
             }
             Err(_) => None,
+        }
+    }
+
+    pub(crate) fn id(&mut self) -> String {
+        match &self.id {
+            Some(id) => id.clone(),
+            None => {
+                let id = replication::generate_id();
+                self.id = Some(id.clone());
+                id
+            }
         }
     }
 }
