@@ -46,6 +46,7 @@ impl Parse {
         match self.next()? {
             Type::SimpleString(s) => Ok(Bytes::from(s.into_bytes())),
             Type::BulkString(data) => Ok(data),
+            Type::RDBFile(data) => Ok(data),
             val => Err(format!("protocol error; expected simple frame or bulk frame, got {:?}", val).into()),
         }
     }

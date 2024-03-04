@@ -33,7 +33,7 @@ impl Applicable for Info {
     async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
         match self.info {
             InfoType::Replication => {
-                let role = dst.get_db().role();
+                let role = dst.db().role().await;
                 let resp = Type::BulkString(Bytes::from(format!("{}", role).into_bytes()));
                 dst.write_all(Encoder::encode(&resp).as_slice()).await?;
                 dst.flush().await?;

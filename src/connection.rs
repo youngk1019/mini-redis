@@ -1,4 +1,3 @@
-use std::io;
 use std::io::Cursor;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -6,6 +5,7 @@ use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWrite, BufWriter};
 use tokio::net::TcpStream;
 use async_trait::async_trait;
+use tokio::io;
 use crate::resp::{self, Type};
 use crate::cmd::Command;
 use crate::db::DB;
@@ -15,6 +15,7 @@ pub struct Connection {
     stream: BufWriter<TcpStream>,
     buffer: BytesMut,
     db: DB,
+    writeable: bool,
 }
 
 #[async_trait]
@@ -24,11 +25,12 @@ pub(crate) trait Applicable {
 
 impl Connection {
     /// Create a new `Connection` instance.
-    pub fn new(stream: TcpStream, db: DB) -> Connection {
+    pub fn new(stream: TcpStream, db: DB, writeable: bool) -> Connection {
         Connection {
             stream: BufWriter::new(stream),
             buffer: BytesMut::with_capacity(4 * 1024),
             db,
+            writeable,
         }
     }
 
@@ -74,8 +76,12 @@ impl Connection {
         }
     }
 
-    pub(crate) fn get_db(&mut self) -> &mut DB {
+    pub(crate) fn db(&mut self) -> &mut DB {
         &mut self.db
+    }
+
+    pub(crate) fn writeable(&self) -> bool {
+        self.writeable
     }
 }
 

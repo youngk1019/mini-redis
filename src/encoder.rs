@@ -44,6 +44,12 @@ impl Encoder {
             Type::Null => {
                 buf.extend_from_slice(b"$-1\r\n");
             }
+            Type::RDBFile(b) => {
+                buf.push(b'$');
+                buf.extend_from_slice(b.len().to_string().as_bytes());
+                buf.extend_from_slice(b"\r\n");
+                buf.extend_from_slice(b.as_ref());
+            }
         }
         buf
     }

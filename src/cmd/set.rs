@@ -40,7 +40,10 @@ impl TryFrom<&mut Parse> for Set {
 #[async_trait]
 impl Applicable for Set {
     async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
-        dst.get_db().set(self.key, self.value, self.expire);
+        if !dst.writeable() {
+            return Ok(());
+        }
+        dst.db().set(self.key, self.value, self.expire).await;
         let resp = Type::SimpleString("OK".to_string());
         dst.write_all(Encoder::encode(&resp).as_slice()).await?;
         dst.flush().await?;

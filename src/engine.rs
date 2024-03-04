@@ -1,0 +1,236 @@
+use std::collections::{BTreeSet, HashMap};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+use bytes::Bytes;
+use tokio::sync::{Notify, Mutex};
+use tokio::{fs, time};
+use tokio::io::AsyncWriteExt;
+use tokio::time::Instant;
+use crate::rdb::serializer::Serializer;
+use crate::rdb::{self, types::Order};
+use crate::rdb::parser::Parser;
+
+#[derive(Debug, Clone)]
+pub struct Engine {
+    shard: Arc<Shard>,
+}
+
+#[derive(Debug)]
+struct Shard {
+    rdb_path: PathBuf,
+    kv: Mutex<KV>,
+    background_task: Notify,
+}
+
+#[derive(Debug)]
+struct KV {
+    entries: HashMap<String, Entry>,
+    expirations: BTreeSet<(Instant, String)>,
+    shutdown: bool,
+}
+
+#[derive(Debug)]
+struct Entry {
+    data: Bytes,
+    expiration: Option<Instant>,
+}
+
+impl Engine {
+    pub(crate) fn new(path: PathBuf) -> Engine {
+        let shard = Arc::new(Shard {
+            rdb_path: path,
+            kv: Mutex::new({
+                KV {
+                    entries: HashMap::new(),
+                    expirations: BTreeSet::new(),
+                    shutdown: false,
+                }
+            }),
+            background_task: Notify::new(),
+        });
+        tokio::spawn(purge_expired_tasks(shard.clone()));
+        Engine { shard }
+    }
+    pub(crate) async fn get(&self, key: String) -> Option<Bytes> {
+        let kv = self.shard.kv.lock().await;
+        kv.entries.get(&key).map(|entry| entry.data.clone())
+    }
+
+    pub(crate) async fn set(&mut self, key: String, value: Bytes, expire: Option<Duration>) {
+        let mut kv = self.shard.kv.lock().await;
+        let mut notify = false;
+        let expiration = expire.map(|duration| {
+            let when = Instant::now() + duration;
+            notify = kv
+                .next_expiration()
+                .map(|expiration| expiration > when)
+                .unwrap_or(true);
+            when
+        });
+        let prev = kv.entries.insert(
+            key.clone(),
+            Entry {
+                data: value,
+                expiration,
+            },
+        );
+        if let Some(prev) = prev {
+            if let Some(when) = prev.expiration {
+                // clear expiration
+                kv.expirations.remove(&(when, key.clone()));
+            }
+        }
+        if let Some(when) = expiration {
+            kv.expirations.insert((when, key));
+        }
+        drop(kv);
+        if notify {
+            self.shard.background_task.notify_one();
+        }
+    }
+
+    pub(crate) async fn del(&mut self, key: String) -> bool {
+        let mut kv = self.shard.kv.lock().await;
+        if let Some(entry) = kv.entries.remove(&key) {
+            if let Some(when) = entry.expiration {
+                kv.expirations.remove(&(when, key));
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) async fn keys(&self) -> Vec<String> {
+        let kv = self.shard.kv.lock().await;
+        kv.entries.keys().cloned().collect()
+    }
+
+    pub(crate) async fn write_rdb(&self) -> crate::Result<()> {
+        let kv = self.shard.kv.lock().await;
+        if self.shard.rdb_path.exists() {
+            let bak = self.shard.rdb_path.with_extension("bak");
+            fs::rename(&self.shard.rdb_path, &bak).await?;
+        }
+        let file = fs::File::create(&self.shard.rdb_path).await?;
+        let mut serializer = Serializer::new(file);
+        serializer.init().await?;
+        for (key, entry) in kv.entries.iter() {
+            serializer.write_order(&Order {
+                dataset: 0,
+                rtype: rdb::types::Type::String(key.clone().into(), entry.data.clone()),
+                expire: instant_to_system_time(entry.expiration),
+            }).await?;
+        }
+        serializer.finish().await?;
+        Ok(())
+    }
+
+    pub(crate) async fn write_rdb_data(&self, data: &[u8]) -> crate::Result<()> {
+        let _kv = self.shard.kv.lock().await;
+        if self.shard.rdb_path.exists() {
+            let bak = self.shard.rdb_path.with_extension("bak");
+            fs::rename(&self.shard.rdb_path, &bak).await?;
+        }
+        let mut file = fs::File::create(&self.shard.rdb_path).await?;
+        file.write_all(data).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn load_rdb(&self) -> crate::Result<()> {
+        let mut kv = self.shard.kv.lock().await;
+        let file = fs::File::open(&self.shard.rdb_path).await?;
+        let mut parser = Parser::new(file);
+        parser.parse().await?;
+        for order in parser.orders().map(|v| v.clone()) {
+            let expiration = system_time_to_instant(order.expire);
+            let key = match order.rtype {
+                rdb::types::Type::String(key, val) => {
+                    kv.entries.insert(key.clone(), Entry {
+                        data: val,
+                        expiration,
+                    });
+                    key
+                }
+                _ => continue,
+            };
+            if let Some(when) = expiration {
+                kv.expirations.insert((when, key));
+            }
+        }
+        drop(kv);
+        self.shard.background_task.notify_one();
+        Ok(())
+    }
+
+    pub(crate) async fn get_rdb(&self) -> crate::Result<Vec<u8>> {
+        let _kv = self.shard.kv.lock().await;
+        match fs::read(&self.shard.rdb_path).await {
+            Ok(data) => Ok(data),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+impl Shard {
+    async fn purge_expired_keys(&self) -> Option<Instant> {
+        let kv = &mut *self.kv.lock().await;
+        if kv.shutdown {
+            return None;
+        }
+        let now = Instant::now();
+        while let Some(&(when, ref key)) = kv.expirations.iter().next() {
+            if when > now {
+                return Some(when);
+            }
+            kv.entries.remove(key);
+            kv.expirations.remove(&(when, key.clone()));
+        }
+        None
+    }
+
+    async fn is_shutdown(&self) -> bool {
+        self.kv.lock().await.shutdown
+    }
+}
+
+impl KV {
+    fn next_expiration(&self) -> Option<Instant> {
+        self.expirations
+            .iter()
+            .next()
+            .map(|expiration| expiration.0)
+    }
+}
+
+async fn purge_expired_tasks(shard: Arc<Shard>) {
+    while !shard.is_shutdown().await {
+        if let Some(when) = shard.purge_expired_keys().await {
+            tokio::select! {
+                _ = time::sleep_until(when) => {}
+                _ = shard.background_task.notified() => {}
+            }
+        } else {
+            shard.background_task.notified().await;
+        }
+    }
+}
+
+fn instant_to_system_time(instant: Option<Instant>) -> Option<SystemTime> {
+    instant.map(|instant| SystemTime::UNIX_EPOCH + instant.duration_since(Instant::now()))
+}
+
+fn system_time_to_instant(system_time: Option<SystemTime>) -> Option<Instant> {
+    match system_time {
+        Some(system_time) => {
+            match system_time.duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(duration) => {
+                    Some(Instant::now() + duration)
+                }
+                Err(_) => None
+            }
+        }
+        None => None
+    }
+}

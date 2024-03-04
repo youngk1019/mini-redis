@@ -15,6 +15,8 @@ pub enum Type {
     // RESP3
     Null,
     Boolean(bool),
+    // Special
+    RDBFile(Bytes),
 }
 
 #[derive(Debug)]
@@ -45,6 +47,7 @@ impl fmt::Display for Type {
             }
             Type::Null => "null".fmt(f),
             Type::Boolean(b) => write!(f, "{}", if *b { "true" } else { "false" }),
+            Type::RDBFile(_) => write!(f, "RDBFile"),
         }
     }
 }
@@ -73,8 +76,13 @@ impl Type {
                 } else {
                     // Read the bulk string
                     let len: usize = get_decimal(cur)?.try_into()?;
-                    // skip that number of bytes + 2 (\r\n).
-                    skip(cur, len + 2)
+                    // skip that number of bytes + 2 (\r\n) if is BulkString
+                    // if is RDBFile, we don't need to skip + 2
+                    if cur.remaining() >= len + 2 && cur.chunk()[len] == b'\r' && cur.chunk()[len + 1] == b'\n' {
+                        skip(cur, len + 2)
+                    } else {
+                        skip(cur, len)
+                    }
                 }
             }
             b'*' => {
@@ -118,14 +126,20 @@ impl Type {
                     Ok(Type::Null)
                 } else {
                     let len = get_decimal(cur)?.try_into()?;
-                    let n = len + 2;
-                    if cur.remaining() < n {
+                    if cur.remaining() < len {
                         return Err(Error::Incomplete);
                     }
+                    let mut n = len + 2;
+                    if cur.remaining() >= n && cur.chunk()[len] == b'\r' && cur.chunk()[len + 1] == b'\n' {} else {
+                        n = len
+                    }
                     let data = Bytes::copy_from_slice(&cur.chunk()[..len]);
-                    // skip that number of bytes + 2 (\r\n).
                     skip(cur, n)?;
-                    Ok(Type::BulkString(data))
+                    if n == len {
+                        Ok(Type::RDBFile(data))
+                    } else {
+                        Ok(Type::BulkString(data))
+                    }
                 }
             }
             b'*' => {
