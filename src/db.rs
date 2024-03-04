@@ -2,9 +2,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use bytes::Bytes;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::Mutex;
+use crate::connection;
+use crate::encoder::Encoder;
 use crate::engine::Engine;
 use crate::replication::Role;
+use crate::resp::Type;
 
 #[derive(Debug, Clone)]
 pub struct DB {
@@ -36,7 +41,16 @@ impl DB {
 
     pub async fn set(&mut self, key: String, value: Bytes, expire: Option<Duration>) {
         let mut shard = self.shard.lock().await;
-        shard.engine.set(key, value, expire).await;
+        shard.engine.set(key.clone(), value.clone(), expire).await;
+        let data = Encoder::encode(&Type::Array(vec![
+            Type::BulkString("SET".into()),
+            Type::BulkString(key.into()),
+            Type::BulkString(value),
+        ]));
+        shard.role.add_offset(data.len() as u64);
+        if shard.role.is_master() {
+            shard.role.replicate_data(data.into()).await;
+        }
     }
 
     #[allow(dead_code)]
@@ -76,6 +90,26 @@ impl DB {
     pub async fn role(&self) -> Role {
         let shard = self.shard.lock().await;
         shard.role.clone()
+    }
+
+    pub async fn add_slave(&self, socket: String, con: &mut connection::Connection) -> crate::Result<Receiver<Bytes>> {
+        let mut shard = self.shard.lock().await;
+        // send RDB file to slave
+        shard.engine.write_rdb().await?;
+        shard.role.set_offset(0);
+        let data = shard.engine.get_rdb().await?;
+        let resp = Type::RDBFile(data.into());
+        con.write_all(Encoder::encode(&resp).as_slice()).await?;
+        con.flush().await?;
+        // add slave to master
+        let (tx, rx) = channel::<Bytes>(32);
+        shard.role.add_slave(socket, tx).await;
+        Ok(rx)
+    }
+
+    pub async fn delete_slave(&self, socket: &String) {
+        let mut shard = self.shard.lock().await;
+        shard.role.delete_slave(socket).await;
     }
 }
 

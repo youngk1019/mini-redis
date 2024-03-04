@@ -44,9 +44,11 @@ impl Applicable for Set {
             return Ok(());
         }
         dst.db().set(self.key, self.value, self.expire).await;
-        let resp = Type::SimpleString("OK".to_string());
-        dst.write_all(Encoder::encode(&resp).as_slice()).await?;
-        dst.flush().await?;
+        if dst.db().role().await.is_master() {
+            let resp = Type::SimpleString("OK".to_string());
+            dst.write_all(Encoder::encode(&resp).as_slice()).await?;
+            dst.flush().await?;
+        }
         Ok(())
     }
 }

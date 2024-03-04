@@ -95,21 +95,21 @@ impl Role {
         }
     }
 
-    pub async fn add_slave(&mut self, id: String, tx: mpsc::Sender<Bytes>) {
+    pub async fn add_slave(&mut self, socket: String, tx: mpsc::Sender<Bytes>) {
         match &self.shard.role_type {
             Type::Master(info) => {
                 let mut slaves = info.slaves.write().await;
-                slaves.insert(id, tx);
+                slaves.insert(socket, tx);
             }
             Type::Slave(_) => {}
         }
     }
 
-    pub async fn delete_slave(&mut self, id: &String) {
+    pub async fn delete_slave(&mut self, socket: &String) {
         match &self.shard.role_type {
             Type::Master(info) => {
                 let mut slaves = info.slaves.write().await;
-                slaves.remove(id);
+                slaves.remove(socket);
             }
             Type::Slave(_) => {}
         }
@@ -120,7 +120,7 @@ impl Role {
             Type::Master(info) => {
                 let slaves = info.slaves.read().await;
                 for (_, tx) in slaves.iter() {
-                    let _ = tx.send(data.clone());
+                    let _ = tx.send(data.clone()).await;
                 }
             }
             Type::Slave(_) => {}
@@ -192,11 +192,10 @@ pub async fn build_replica_connect(db: DB) -> crate::Result<()> {
 }
 
 async fn replica_connect(mut con: connection::Connection) -> crate::Result<()> {
-    loop {
-        handshake_ping(&mut con).await?;
-        handshake_replconf(&mut con).await?;
-        handshake_psync(&mut con).await?;
-    }
+    handshake_ping(&mut con).await?;
+    handshake_replconf(&mut con).await?;
+    handshake_psync(&mut con).await?;
+    con.run().await
 }
 
 async fn handshake_ping(con: &mut connection::Connection) -> crate::Result<()> {

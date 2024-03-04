@@ -36,6 +36,9 @@ impl TryFrom<&mut Parse> for ReplConf {
 #[async_trait]
 impl Applicable for ReplConf {
     async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
+        if let Some(port) = self.port {
+            dst.set_port(port);
+        }
         let resp = Type::SimpleString("OK".to_string());
         dst.write_all(Encoder::encode(&resp).as_slice()).await?;
         dst.flush().await?;

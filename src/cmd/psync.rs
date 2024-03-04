@@ -31,13 +31,22 @@ impl TryFrom<&mut Parse> for PSync {
 #[async_trait]
 impl Applicable for PSync {
     async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
-        let role = dst.db().role().await;
-        let resp = Type::SimpleString(format!("FULLRESYNC {} {}", role.id(), role.offset()));
-        dst.write_all(Encoder::encode(&resp).as_slice()).await?;
-        let data = dst.db().read_rdb().await?;
-        let resp = Type::RDBFile(data.into());
-        dst.write_all(Encoder::encode(&resp).as_slice()).await?;
-        dst.flush().await?;
+        if let Some(socket) = dst.socket_addr() {
+            let role = dst.db().role().await;
+            let resp = Type::SimpleString(format!("FULLRESYNC {} {}", role.id(), role.offset()));
+            dst.write_all(Encoder::encode(&resp).as_slice()).await?;
+            let db = dst.db().clone();
+            let mut rx = db.add_slave(socket.clone(), dst).await?;
+            let sender = async {
+                while let Some(data) = rx.recv().await {
+                    dst.write_all(data.as_ref()).await?;
+                    dst.flush().await?;
+                }
+                Ok(())
+            };
+            let _: crate::Result<()> = sender.await;
+            dst.db().delete_slave(&socket).await;
+        }
         Ok(())
     }
 }

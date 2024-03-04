@@ -16,6 +16,7 @@ pub struct Connection {
     buffer: BytesMut,
     db: DB,
     writeable: bool,
+    port: Option<usize>,
 }
 
 #[async_trait]
@@ -31,6 +32,7 @@ impl Connection {
             buffer: BytesMut::with_capacity(4 * 1024),
             db,
             writeable,
+            port: None,
         }
     }
 
@@ -82,6 +84,24 @@ impl Connection {
 
     pub(crate) fn writeable(&self) -> bool {
         self.writeable
+    }
+
+    pub(crate) fn set_port(&mut self, port: usize) {
+        self.port = Some(port);
+    }
+
+    pub(crate) fn socket_addr(&self) -> Option<String> {
+        match self.stream.get_ref().peer_addr() {
+            Ok(addr) => {
+                match self.port {
+                    Some(port) => {
+                        Some(format!("{}:{}", addr.ip(), port))
+                    }
+                    None => None
+                }
+            }
+            Err(_) => None,
+        }
     }
 }
 
