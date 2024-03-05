@@ -98,6 +98,10 @@ impl Connection {
         self.id = Some(id);
     }
 
+    pub(crate) async fn need_update_offset(&self) -> bool {
+        self.writeable || self.db.role().await.is_master()
+    }
+
     pub(crate) fn socket_addr(&self) -> Option<String> {
         match self.stream.get_ref().peer_addr() {
             Ok(addr) => {

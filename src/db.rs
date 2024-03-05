@@ -42,13 +42,12 @@ impl DB {
     pub async fn set(&mut self, key: String, value: Bytes, expire: Option<Duration>) {
         let mut shard = self.shard.write().await;
         shard.engine.set(key.clone(), value.clone(), expire).await;
-        let data = Encoder::encode(&Type::Array(vec![
-            Type::BulkString("SET".into()),
-            Type::BulkString(key.into()),
-            Type::BulkString(value),
-        ]));
-        shard.role.add_offset(data.len() as u64);
         if shard.role.is_master() {
+            let data = Encoder::encode(&Type::Array(vec![
+                Type::BulkString("SET".into()),
+                Type::BulkString(key.into()),
+                Type::BulkString(value),
+            ]));
             shard.role.replicate_data(data.into()).await;
         }
     }

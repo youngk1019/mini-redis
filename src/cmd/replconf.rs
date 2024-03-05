@@ -8,6 +8,7 @@ use crate::resp::Type;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct ReplConf {
+    command_size: u64,
     port: Option<usize>,
     ack: bool,
 }
@@ -35,6 +36,7 @@ impl TryFrom<&mut Parse> for ReplConf {
                 Err(parser::Error::EndOfStream) => {
                     return Ok(
                         ReplConf {
+                            command_size: parse.command_size(),
                             port,
                             ack,
                         });
@@ -59,6 +61,7 @@ impl Applicable for ReplConf {
                 Type::BulkString("ACK".into()),
                 Type::BulkString(dst.db().role().await.offset().to_string().into()),
             ]);
+            dst.db().role().await.add_offset(self.command_size);
             dst.write_all(Encoder::encode(&resp).as_slice()).await?;
             dst.flush().await?;
         } else {

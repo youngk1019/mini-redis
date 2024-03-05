@@ -8,6 +8,7 @@ use crate::encoder::Encoder;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Ping {
+    command_size: u64,
     msg: Option<Bytes>,
 }
 
@@ -15,8 +16,8 @@ impl TryFrom<&mut Parse> for Ping {
     type Error = crate::Error;
     fn try_from(parse: &mut Parse) -> crate::Result<Self> {
         match parse.next_bytes() {
-            Ok(msg) => Ok(Ping::new(Some(msg))),
-            Err(parser::Error::EndOfStream) => Ok(Ping::default()),
+            Ok(msg) => Ok(Ping { command_size: parse.command_size(), msg: Some(msg) }),
+            Err(parser::Error::EndOfStream) => Ok(Ping { command_size: parse.command_size(), msg: None }),
             Err(e) => Err(e.into()),
         }
     }
@@ -25,6 +26,13 @@ impl TryFrom<&mut Parse> for Ping {
 #[async_trait]
 impl Applicable for Ping {
     async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
+        if dst.need_update_offset().await {
+            dst.db().role().await.add_offset(self.command_size);
+        }
+        // If the destination is master connect, don't send PONG
+        if !dst.db().role().await.is_master() && dst.writeable() {
+            return Ok(());
+        }
         let resp = match self.msg {
             None => Type::SimpleString("PONG".to_string()),
             Some(msg) => Type::BulkString(msg),
@@ -37,6 +45,6 @@ impl Applicable for Ping {
 
 impl Ping {
     pub fn new(msg: Option<Bytes>) -> Ping {
-        Ping { msg }
+        Ping { command_size: 0, msg }
     }
 }

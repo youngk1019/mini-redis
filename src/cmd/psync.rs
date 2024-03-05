@@ -34,7 +34,8 @@ impl Applicable for PSync {
         if let Some(socket) = dst.socket_addr() {
             let role = dst.db().role().await;
             let key = socket + &*dst.id();
-            let resp = Type::SimpleString(format!("FULLRESYNC {} {}", role.id(), role.offset()));
+            let offset: u64 = 0;
+            let resp = Type::SimpleString(format!("FULLRESYNC {} {}", role.id(), offset));
             dst.write_all(Encoder::encode(&resp).as_slice()).await?;
             let db = dst.db().clone();
             let mut rx = db.add_slave(key.clone(), dst).await?;

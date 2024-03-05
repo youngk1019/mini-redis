@@ -5,6 +5,7 @@ use std::{fmt, str, vec};
 
 #[derive(Debug)]
 pub(crate) struct Parse {
+    command_size: u64,
     parts: vec::IntoIter<Type>,
 }
 
@@ -16,12 +17,14 @@ pub(crate) enum Error {
 
 impl Parse {
     pub(crate) fn new(val: Type) -> Parse {
+        let command_size = val.len();
         let array = match val {
             Type::Array(array) => array,
             val => vec![val],
         };
 
         Parse {
+            command_size,
             parts: array.into_iter(),
         }
     }
@@ -72,6 +75,10 @@ impl Parse {
         } else {
             Err("protocol error; expected end of frame, but there was more".into())
         }
+    }
+
+    pub(crate) fn command_size(&self) -> u64 {
+        self.command_size
     }
 }
 

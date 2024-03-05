@@ -157,6 +157,25 @@ impl Type {
             _ => unimplemented!(),
         }
     }
+
+    pub fn len(&self) -> u64 {
+        match self {
+            Type::SimpleString(s) => s.len() as u64 + 3,
+            Type::SimpleError(s) => s.len() as u64 + 3,
+            Type::Integer(i) => i.to_string().len() as u64 + 3,
+            Type::BulkString(b) => b.len() as u64 + b.len().to_string().len() as u64 + 5,
+            Type::Array(a) => {
+                let mut len = 0;
+                for r in a {
+                    len += r.len();
+                }
+                len + a.len().to_string().len() as u64 + 3
+            }
+            Type::Null => 5,
+            Type::Boolean(_) => 4,
+            Type::RDBFile(b) => b.len() as u64 + b.len().to_string().len() as u64 + 3,
+        }
+    }
 }
 
 impl PartialEq<&str> for Type {

@@ -9,6 +9,7 @@ use crate::resp::Type;
 
 #[derive(Debug, PartialEq)]
 pub struct Set {
+    command_size: u64,
     key: String,
     value: Bytes,
     expire: Option<Duration>,
@@ -33,7 +34,7 @@ impl TryFrom<&mut Parse> for Set {
             Err(parser::Error::EndOfStream) => {}
             Err(err) => return Err(err.into()),
         }
-        Ok(Set { key, value, expire })
+        Ok(Set { command_size: parse.command_size(), key, value, expire })
     }
 }
 
@@ -43,6 +44,7 @@ impl Applicable for Set {
         if !dst.writeable() {
             return Ok(());
         }
+        dst.db().role().await.add_offset(self.command_size);
         dst.db().set(self.key, self.value, self.expire).await;
         if dst.db().role().await.is_master() {
             let resp = Type::SimpleString("OK".to_string());
@@ -56,6 +58,7 @@ impl Applicable for Set {
 impl Set {
     pub fn new(key: impl ToString, value: Bytes, expire: Option<Duration>) -> Set {
         Set {
+            command_size: 0,
             key: key.to_string(),
             value,
             expire,

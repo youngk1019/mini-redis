@@ -8,6 +8,7 @@ use crate::resp::Type;
 
 #[derive(Debug, PartialEq)]
 pub struct Info {
+    command_size: u64,
     info: InfoType,
 }
 
@@ -24,7 +25,7 @@ impl TryFrom<&mut Parse> for Info {
             "REPLICATION" => InfoType::Replication,
             _ => return Err("INFO only supports `REPLICATION`".into()),
         };
-        Ok(Info { info })
+        Ok(Info { command_size: parse.command_size(), info })
     }
 }
 
@@ -35,6 +36,9 @@ impl Applicable for Info {
             InfoType::Replication => {
                 let role = dst.db().role().await;
                 let resp = Type::BulkString(Bytes::from(format!("{}", role).into_bytes()));
+                if dst.need_update_offset().await {
+                    dst.db().role().await.add_offset(self.command_size);
+                }
                 dst.write_all(Encoder::encode(&resp).as_slice()).await?;
                 dst.flush().await?;
             }
@@ -45,6 +49,6 @@ impl Applicable for Info {
 
 impl Info {
     pub fn new(info: InfoType) -> Info {
-        Info { info }
+        Info { command_size: 0, info }
     }
 }
