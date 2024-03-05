@@ -4,7 +4,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{channel, Receiver};
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use crate::connection;
 use crate::encoder::Encoder;
 use crate::engine::Engine;
@@ -13,7 +13,7 @@ use crate::resp::Type;
 
 #[derive(Debug, Clone)]
 pub struct DB {
-    shard: Arc<Mutex<Shard>>,
+    shard: Arc<RwLock<Shard>>,
 }
 
 #[derive(Debug)]
@@ -27,7 +27,7 @@ impl DB {
         let engine = Engine::new(path);
         let role = role.unwrap_or_default();
         DB {
-            shard: Arc::new(Mutex::new(Shard {
+            shard: Arc::new(RwLock::new(Shard {
                 engine,
                 role,
             }))
@@ -35,12 +35,12 @@ impl DB {
     }
 
     pub async fn get(&self, key: String) -> Option<Bytes> {
-        let shard = self.shard.lock().await;
+        let shard = self.shard.read().await;
         shard.engine.get(key).await
     }
 
     pub async fn set(&mut self, key: String, value: Bytes, expire: Option<Duration>) {
-        let mut shard = self.shard.lock().await;
+        let mut shard = self.shard.write().await;
         shard.engine.set(key.clone(), value.clone(), expire).await;
         let data = Encoder::encode(&Type::Array(vec![
             Type::BulkString("SET".into()),
@@ -55,25 +55,25 @@ impl DB {
 
     #[allow(dead_code)]
     pub async fn del(&mut self, key: String) -> bool {
-        let mut shard = self.shard.lock().await;
+        let mut shard = self.shard.write().await;
         shard.engine.del(key).await
     }
 
     #[allow(dead_code)]
     pub async fn keys(&self) -> Vec<String> {
-        let shard = self.shard.lock().await;
+        let shard = self.shard.read().await;
         shard.engine.keys().await
     }
 
     pub async fn rdb_sync(&self) -> crate::Result<()> {
-        let mut shard = self.shard.lock().await;
+        let mut shard = self.shard.write().await;
         shard.engine.write_rdb().await?;
         shard.role.set_offset(0);
         Ok(())
     }
 
     pub async fn write_rdb_data(&self, data: &[u8]) -> crate::Result<()> {
-        let mut shard = self.shard.lock().await;
+        let mut shard = self.shard.write().await;
         shard.engine.write_rdb_data(data).await?;
         shard.engine.load_rdb().await?;
         shard.role.set_offset(0);
@@ -81,19 +81,19 @@ impl DB {
     }
 
     pub async fn read_rdb(&self) -> crate::Result<Vec<u8>> {
-        let mut shard = self.shard.lock().await;
+        let mut shard = self.shard.write().await;
         shard.engine.write_rdb().await?;
         shard.role.set_offset(0);
         shard.engine.get_rdb().await
     }
 
     pub async fn role(&self) -> Role {
-        let shard = self.shard.lock().await;
+        let shard = self.shard.read().await;
         shard.role.clone()
     }
 
     pub async fn add_slave(&self, key: String, con: &mut connection::Connection) -> crate::Result<Receiver<Bytes>> {
-        let mut shard = self.shard.lock().await;
+        let mut shard = self.shard.write().await;
         // send RDB file to slave
         shard.engine.write_rdb().await?;
         shard.role.set_offset(0);
@@ -108,7 +108,7 @@ impl DB {
     }
 
     pub async fn delete_slave(&self, key: &String) {
-        let mut shard = self.shard.lock().await;
+        let mut shard = self.shard.write().await;
         shard.role.delete_slave(key).await;
     }
 }

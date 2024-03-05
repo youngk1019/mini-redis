@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use bytes::Bytes;
-use tokio::sync::{Notify, Mutex};
+use tokio::sync::{Notify, RwLock};
 use tokio::{fs, time};
 use tokio::io::AsyncWriteExt;
 use tokio::time::Instant;
@@ -19,7 +19,7 @@ pub struct Engine {
 #[derive(Debug)]
 struct Shard {
     rdb_path: PathBuf,
-    kv: Mutex<KV>,
+    kv: RwLock<KV>,
     background_task: Notify,
 }
 
@@ -40,7 +40,7 @@ impl Engine {
     pub(crate) fn new(path: PathBuf) -> Engine {
         let shard = Arc::new(Shard {
             rdb_path: path,
-            kv: Mutex::new({
+            kv: RwLock::new({
                 KV {
                     entries: HashMap::new(),
                     expirations: BTreeSet::new(),
@@ -53,12 +53,12 @@ impl Engine {
         Engine { shard }
     }
     pub(crate) async fn get(&self, key: String) -> Option<Bytes> {
-        let kv = self.shard.kv.lock().await;
+        let kv = self.shard.kv.read().await;
         kv.entries.get(&key).map(|entry| entry.data.clone())
     }
 
     pub(crate) async fn set(&mut self, key: String, value: Bytes, expire: Option<Duration>) {
-        let mut kv = self.shard.kv.lock().await;
+        let mut kv = self.shard.kv.write().await;
         let mut notify = false;
         let expiration = expire.map(|duration| {
             let when = Instant::now() + duration;
@@ -91,7 +91,7 @@ impl Engine {
     }
 
     pub(crate) async fn del(&mut self, key: String) -> bool {
-        let mut kv = self.shard.kv.lock().await;
+        let mut kv = self.shard.kv.write().await;
         if let Some(entry) = kv.entries.remove(&key) {
             if let Some(when) = entry.expiration {
                 kv.expirations.remove(&(when, key));
@@ -103,12 +103,12 @@ impl Engine {
     }
 
     pub(crate) async fn keys(&self) -> Vec<String> {
-        let kv = self.shard.kv.lock().await;
+        let kv = self.shard.kv.read().await;
         kv.entries.keys().cloned().collect()
     }
 
     pub(crate) async fn write_rdb(&self) -> crate::Result<()> {
-        let kv = self.shard.kv.lock().await;
+        let kv = self.shard.kv.write().await;
         if self.shard.rdb_path.exists() {
             let bak = self.shard.rdb_path.with_extension("bak");
             fs::rename(&self.shard.rdb_path, &bak).await?;
@@ -128,7 +128,7 @@ impl Engine {
     }
 
     pub(crate) async fn write_rdb_data(&self, data: &[u8]) -> crate::Result<()> {
-        let _kv = self.shard.kv.lock().await;
+        let _kv = self.shard.kv.write().await;
         if self.shard.rdb_path.exists() {
             let bak = self.shard.rdb_path.with_extension("bak");
             fs::rename(&self.shard.rdb_path, &bak).await?;
@@ -139,7 +139,7 @@ impl Engine {
     }
 
     pub(crate) async fn load_rdb(&self) -> crate::Result<()> {
-        let mut kv = self.shard.kv.lock().await;
+        let mut kv = self.shard.kv.write().await;
         let file = fs::File::open(&self.shard.rdb_path).await?;
         let mut parser = Parser::new(file);
         parser.parse().await?;
@@ -165,7 +165,7 @@ impl Engine {
     }
 
     pub(crate) async fn get_rdb(&self) -> crate::Result<Vec<u8>> {
-        let _kv = self.shard.kv.lock().await;
+        let _kv = self.shard.kv.write().await;
         match fs::read(&self.shard.rdb_path).await {
             Ok(data) => Ok(data),
             Err(e) => Err(e.into()),
@@ -175,7 +175,7 @@ impl Engine {
 
 impl Shard {
     async fn purge_expired_keys(&self) -> Option<Instant> {
-        let kv = &mut *self.kv.lock().await;
+        let kv = &mut *self.kv.write().await;
         if kv.shutdown {
             return None;
         }
@@ -191,7 +191,7 @@ impl Shard {
     }
 
     async fn is_shutdown(&self) -> bool {
-        self.kv.lock().await.shutdown
+        self.kv.read().await.shutdown
     }
 }
 

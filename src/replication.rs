@@ -6,7 +6,7 @@ use bytes::Bytes;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex};
 use crate::{connection, resp};
 use crate::encoder::Encoder;
 use crate::parser::Parse;
@@ -38,7 +38,8 @@ struct Slave {
 
 #[derive(Debug)]
 struct Master {
-    slaves: RwLock<HashMap<String, mpsc::Sender<Bytes>>>,
+    // TODO: remove mutex because hashmap will only be used when DB is locked
+    slaves: Mutex<HashMap<String, mpsc::Sender<Bytes>>>,
 }
 
 impl Role {
@@ -96,7 +97,7 @@ impl Role {
     pub async fn add_slave(&mut self, key: String, tx: mpsc::Sender<Bytes>) {
         match &self.shard.role_type {
             Type::Master(info) => {
-                let mut slaves = info.slaves.write().await;
+                let mut slaves = info.slaves.lock().await;
                 slaves.insert(key, tx);
             }
             Type::Slave(_) => {}
@@ -106,7 +107,7 @@ impl Role {
     pub async fn delete_slave(&mut self, key: &String) {
         match &self.shard.role_type {
             Type::Master(info) => {
-                let mut slaves = info.slaves.write().await;
+                let mut slaves = info.slaves.lock().await;
                 slaves.remove(key);
             }
             Type::Slave(_) => {}
@@ -116,7 +117,7 @@ impl Role {
     pub async fn replicate_data(&mut self, data: Bytes) {
         match &self.shard.role_type {
             Type::Master(info) => {
-                let slaves = info.slaves.read().await;
+                let slaves = info.slaves.lock().await;
                 for (_, tx) in slaves.iter() {
                     let _ = tx.send(data.clone()).await;
                 }
@@ -132,7 +133,7 @@ impl Default for Role {
             shard: Arc::new(
                 Shard {
                     role_type: Type::Master(Master {
-                        slaves: RwLock::new(HashMap::new()),
+                        slaves: Mutex::new(HashMap::new()),
                     }),
                     id: generate_id(),
                     offset: AtomicU64::new(0),
