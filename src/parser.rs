@@ -15,15 +15,15 @@ pub(crate) enum Error {
 }
 
 impl Parse {
-    pub(crate) fn new(val: Type) -> Result<Parse, Error> {
+    pub(crate) fn new(val: Type) -> Parse {
         let array = match val {
             Type::Array(array) => array,
             val => vec![val],
         };
 
-        Ok(Parse {
+        Parse {
             parts: array.into_iter(),
-        })
+        }
     }
 
     /// Return the next entry. Array frames are arrays of frames, so the next

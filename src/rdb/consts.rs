@@ -1,6 +1,6 @@
 pub(crate) mod version {
     pub const SUPPORTED_MINIMUM: u32 = 1;
-    pub const SUPPORTED_MAXIMUM: u32 = 7;
+    pub const SUPPORTED_MAXIMUM: u32 = 11;
 }
 
 pub(crate) mod constant {

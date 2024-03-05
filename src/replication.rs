@@ -6,10 +6,8 @@ use bytes::Bytes;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 use tokio::sync::{mpsc, RwLock};
 use crate::{connection, resp};
-use crate::db::DB;
 use crate::encoder::Encoder;
 use crate::parser::Parse;
 
@@ -175,27 +173,11 @@ impl fmt::Display for Role {
     }
 }
 
-pub async fn build_replica_connect(db: DB) -> crate::Result<()> {
-    if let Some((ip, port)) = db.role().await.master_info() {
-        let master_address = format!("{}:{}", ip, port);
-        return match TcpStream::connect(master_address).await {
-            Ok(stream) => {
-                replica_connect(connection::Connection::new(stream, db, true)).await?;
-                Ok(())
-            }
-            _ => {
-                Err("connect master error".into())
-            }
-        };
-    }
+pub async fn replica_connect(con: &mut connection::Connection) -> crate::Result<()> {
+    handshake_ping(con).await?;
+    handshake_replconf(con).await?;
+    handshake_psync(con).await?;
     Ok(())
-}
-
-async fn replica_connect(mut con: connection::Connection) -> crate::Result<()> {
-    handshake_ping(&mut con).await?;
-    handshake_replconf(&mut con).await?;
-    handshake_psync(&mut con).await?;
-    con.run().await
 }
 
 async fn handshake_ping(con: &mut connection::Connection) -> crate::Result<()> {
@@ -207,7 +189,7 @@ async fn handshake_ping(con: &mut connection::Connection) -> crate::Result<()> {
     match con.read_frame().await {
         Ok(maybe_frame) => {
             let frame = maybe_frame.ok_or_else(|| "read frame error".to_string())?;
-            let mut parse = Parse::new(frame)?;
+            let mut parse = Parse::new(frame);
             let info = parse.next_string()?.to_uppercase();
             if info != "PONG" {
                 return Err("read frame error".into());
@@ -231,7 +213,7 @@ async fn handshake_replconf(con: &mut connection::Connection) -> crate::Result<(
     match con.read_frame().await {
         Ok(maybe_frame) => {
             let frame = maybe_frame.ok_or_else(|| "read frame error".to_string())?;
-            let mut parse = Parse::new(frame)?;
+            let mut parse = Parse::new(frame);
             let info = parse.next_string()?.to_uppercase();
             if info != "OK" {
                 return Err("read frame error".into());
@@ -250,7 +232,7 @@ async fn handshake_replconf(con: &mut connection::Connection) -> crate::Result<(
     match con.read_frame().await {
         Ok(maybe_frame) => {
             let frame = maybe_frame.ok_or_else(|| "read frame error".to_string())?;
-            let mut parse = Parse::new(frame)?;
+            let mut parse = Parse::new(frame);
             let info = parse.next_string()?.to_uppercase();
             if info != "OK" {
                 return Err("read frame error".into());
@@ -273,13 +255,12 @@ async fn handshake_psync(con: &mut connection::Connection) -> crate::Result<()> 
     match con.read_frame().await {
         Ok(maybe_frame) => {
             let frame = maybe_frame.ok_or_else(|| "read frame error".to_string())?;
-            let mut parse = Parse::new(frame)?;
+            let mut parse = Parse::new(frame);
             let info = parse.next_string()?.to_uppercase();
-            if info != "FULLRESYNC" {
+            // FULLRESYNC <REPL_ID> offset
+            if !info.starts_with("FULLRESYNC") {
                 return Err("read frame error".into());
             }
-            let _replid = parse.next_string()?;
-            let _offset = parse.next_int()?;
             parse.finish()?;
         }
         _ => { return Err("read frame error".into()); }
@@ -288,9 +269,10 @@ async fn handshake_psync(con: &mut connection::Connection) -> crate::Result<()> 
     match con.read_frame().await {
         Ok(maybe_frame) => {
             let frame = maybe_frame.ok_or_else(|| "read frame error".to_string())?;
-            let mut parse = Parse::new(frame)?;
+            let mut parse = Parse::new(frame);
             let data = parse.next_bytes()?;
             con.db().write_rdb_data(&data).await?;
+            parse.finish()?;
             Ok(())
         }
         _ => Err("read frame error".into())

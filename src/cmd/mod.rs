@@ -29,7 +29,7 @@ pub enum Command {
 impl TryFrom<Type> for Command {
     type Error = crate::Error;
     fn try_from(value: Type) -> crate::Result<Self> {
-        let mut parse = Parse::new(value)?;
+        let mut parse = Parse::new(value);
         let command_name = parse.next_string()?.to_uppercase();
         let command = match command_name.as_str() {
             "PING" => Command::Ping((&mut parse).try_into()?),
