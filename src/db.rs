@@ -8,7 +8,10 @@ use tokio::sync::RwLock;
 use crate::connection;
 use crate::encoder::Encoder;
 use crate::engine::Engine;
-use crate::replication::Role;
+use crate::replication::command::Command;
+use crate::replication::role::Role;
+use crate::replication::simple::Simple;
+use crate::replication::synchronization::Synchronization;
 use crate::resp::Type;
 
 #[derive(Debug, Clone)]
@@ -48,7 +51,7 @@ impl DB {
                 Type::BulkString(key.into()),
                 Type::BulkString(value),
             ]));
-            shard.role.replicate_data(data.into()).await;
+            shard.role.replicate_data(Command::Simple(Simple::new(data.into()))).await;
         }
     }
 
@@ -91,7 +94,7 @@ impl DB {
         shard.role.clone()
     }
 
-    pub async fn add_slave(&self, key: String, con: &mut connection::Connection) -> crate::Result<Receiver<Bytes>> {
+    pub async fn add_slave(&self, key: String, con: &mut connection::Connection) -> crate::Result<Receiver<Command>> {
         let mut shard = self.shard.write().await;
         // send RDB file to slave
         shard.engine.write_rdb().await?;
@@ -101,7 +104,7 @@ impl DB {
         con.write_all(Encoder::encode(&resp).as_slice()).await?;
         con.flush().await?;
         // add slave to master
-        let (tx, rx) = channel::<Bytes>(32);
+        let (tx, rx) = channel::<Command>(32);
         shard.role.add_slave(key, tx).await;
         Ok(rx)
     }
@@ -109,6 +112,11 @@ impl DB {
     pub async fn delete_slave(&self, key: &String) {
         let mut shard = self.shard.write().await;
         shard.role.delete_slave(key).await;
+    }
+
+    pub async fn sync_replication(&self, sync: Synchronization) {
+        let mut shard = self.shard.write().await;
+        shard.role.replicate_data(Command::Synchronization(sync)).await;
     }
 }
 

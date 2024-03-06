@@ -26,7 +26,7 @@ async fn main() -> redis_starter_rust::Result<()> {
     let listener = TcpListener::bind(format!("127.0.0.1:{}", cfg.port)).await?;
     let mut role = None;
     if let Some(replica) = cfg.replica {
-        role = Some(replication::Role::new_slave(cfg.port, replica[0].clone(), replica[1].parse().unwrap()));
+        role = Some(replication::role::Role::new_slave(cfg.port, replica[0].clone(), replica[1].parse().unwrap()));
     }
     let rdb_path = Path::new(&cfg.dir).join(&cfg.dbfilename);
     let db = db::DB::new(rdb_path, role);

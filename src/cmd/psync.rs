@@ -3,6 +3,7 @@ use tokio::io::AsyncWriteExt;
 use crate::connection::{Applicable, Connection};
 use crate::encoder::Encoder;
 use crate::parser::Parse;
+use crate::replication::command::Command;
 use crate::resp::Type;
 
 #[derive(Debug, Default, PartialEq)]
@@ -40,9 +41,27 @@ impl Applicable for PSync {
             let db = dst.db().clone();
             let mut rx = db.add_slave(key.clone(), dst).await?;
             let sender = async {
-                while let Some(data) = rx.recv().await {
-                    dst.write_all(data.as_ref()).await?;
-                    dst.flush().await?;
+                loop {
+                    tokio::select! {
+                        cmd = rx.recv() => {
+                            if let Some(cmd) = cmd {
+                                match cmd {
+                                    Command::Simple(simple) => {
+                                        dst.write_all(simple.data()).await?;
+                                        dst.flush().await?
+                                    }
+                                    Command::Synchronization(sync) => {
+                                        sync.finish();
+                                    }
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        _ = dst.read_frame() => {
+                            // TODO: handle the case where the slave sends a command to the master
+                        }
+                    }
                 }
                 Ok(())
             };
