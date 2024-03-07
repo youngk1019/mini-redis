@@ -153,7 +153,10 @@ impl Engine {
         let mut parser = Parser::new(file);
         parser.parse().await?;
         for order in parser.orders().map(|v| v.clone()) {
-            let expiration = system_time_to_instant(order.expire);
+            let expiration = match system_time_to_instant(order.expire){
+                Ok(expiration) => expiration,
+                Err(_) => continue,
+            };
             let key = match order.rtype {
                 rdb::types::Type::String(key, val) => {
                     kv.entries.insert(key.clone(), Entry {
@@ -238,16 +241,16 @@ fn instant_to_system_time(instant: Option<Instant>) -> Option<SystemTime> {
     instant.map(|instant| SystemTime::UNIX_EPOCH + instant.duration_since(Instant::now()))
 }
 
-fn system_time_to_instant(system_time: Option<SystemTime>) -> Option<Instant> {
+fn system_time_to_instant(system_time: Option<SystemTime>) -> crate::Result<Option<Instant>> {
     match system_time {
         Some(system_time) => {
-            match system_time.duration_since(SystemTime::UNIX_EPOCH) {
+            match system_time.duration_since(SystemTime::now()) {
                 Ok(duration) => {
-                    Some(Instant::now() + duration)
+                    Ok(Some(Instant::now() + duration))
                 }
-                Err(_) => None
+                Err(e) => Err(e.into())
             }
         }
-        None => None
+        None => Ok(None)
     }
 }

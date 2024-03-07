@@ -1,6 +1,6 @@
 use tokio::net::TcpListener;
 use clap::Parser;
-use redis_starter_rust::{listener, db, replication};
+use redis::{listener, db, replication};
 
 
 #[derive(Parser)]
@@ -20,7 +20,7 @@ struct Config {
 
 
 #[tokio::main]
-async fn main() -> redis_starter_rust::Result<()> {
+async fn main() -> redis::Result<()> {
     let cfg = Config::parse();
     let listener = TcpListener::bind(format!("127.0.0.1:{}", cfg.port)).await?;
     let mut role = None;

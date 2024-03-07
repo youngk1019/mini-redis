@@ -6,7 +6,7 @@
 #
 # DON'T EDIT THIS!
 [package]
-name = "redis-starter-rust"
+name = "redis"
 version = "0.1.0"
 authors = ["BoKang Yang <yangbokang1019@gmail.com>"]
 edition = "2021"
