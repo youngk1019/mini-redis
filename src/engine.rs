@@ -18,7 +18,9 @@ pub struct Engine {
 
 #[derive(Debug)]
 struct Shard {
-    rdb_path: PathBuf,
+    dir: String,
+    file_name: String,
+    path: PathBuf,
     kv: RwLock<KV>,
     background_task: Notify,
 }
@@ -37,9 +39,11 @@ struct Entry {
 }
 
 impl Engine {
-    pub(crate) fn new(path: PathBuf) -> Engine {
+    pub(crate) fn new(dir: String, file_name: String) -> Engine {
         let shard = Arc::new(Shard {
-            rdb_path: path,
+            dir: dir.clone(),
+            file_name: file_name.clone(),
+            path: PathBuf::from(dir).join(file_name),
             kv: RwLock::new({
                 KV {
                     entries: HashMap::new(),
@@ -52,6 +56,7 @@ impl Engine {
         tokio::spawn(purge_expired_tasks(shard.clone()));
         Engine { shard }
     }
+
     pub(crate) async fn get(&self, key: String) -> Option<Bytes> {
         let kv = self.shard.kv.read().await;
         kv.entries.get(&key).map(|entry| entry.data.clone())
@@ -109,11 +114,11 @@ impl Engine {
 
     pub(crate) async fn write_rdb(&self) -> crate::Result<()> {
         let kv = self.shard.kv.write().await;
-        if self.shard.rdb_path.exists() {
-            let bak = self.shard.rdb_path.with_extension("bak");
-            fs::rename(&self.shard.rdb_path, &bak).await?;
+        if self.shard.path.exists() {
+            let bak = self.shard.path.with_extension("bak");
+            fs::rename(&self.shard.path, &bak).await?;
         }
-        let file = fs::File::create(&self.shard.rdb_path).await?;
+        let file = fs::File::create(&self.shard.path).await?;
         let mut serializer = Serializer::new(file);
         serializer.init().await?;
         for (key, entry) in kv.entries.iter() {
@@ -129,18 +134,18 @@ impl Engine {
 
     pub(crate) async fn write_rdb_data(&self, data: &[u8]) -> crate::Result<()> {
         let _kv = self.shard.kv.write().await;
-        if self.shard.rdb_path.exists() {
-            let bak = self.shard.rdb_path.with_extension("bak");
-            fs::rename(&self.shard.rdb_path, &bak).await?;
+        if self.shard.path.exists() {
+            let bak = self.shard.path.with_extension("bak");
+            fs::rename(&self.shard.path, &bak).await?;
         }
-        let mut file = fs::File::create(&self.shard.rdb_path).await?;
+        let mut file = fs::File::create(&self.shard.path).await?;
         file.write_all(data).await?;
         Ok(())
     }
 
     pub(crate) async fn load_rdb(&self) -> crate::Result<()> {
         let mut kv = self.shard.kv.write().await;
-        let file = fs::File::open(&self.shard.rdb_path).await?;
+        let file = fs::File::open(&self.shard.path).await?;
         let mut parser = Parser::new(file);
         parser.parse().await?;
         for order in parser.orders().map(|v| v.clone()) {
@@ -164,9 +169,17 @@ impl Engine {
         Ok(())
     }
 
+    pub fn dir(&self) -> String {
+        self.shard.dir.clone()
+    }
+
+    pub fn file_name(&self) -> String {
+        self.shard.file_name.clone()
+    }
+
     pub(crate) async fn get_rdb(&self) -> crate::Result<Vec<u8>> {
         let _kv = self.shard.kv.write().await;
-        match fs::read(&self.shard.rdb_path).await {
+        match fs::read(&self.shard.path).await {
             Ok(data) => Ok(data),
             Err(e) => Err(e.into()),
         }

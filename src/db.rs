@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use bytes::Bytes;
@@ -26,8 +25,8 @@ struct Shard {
 }
 
 impl DB {
-    pub fn new(path: PathBuf, role: Option<Role>) -> DB {
-        let engine = Engine::new(path);
+    pub fn new(dir: String, file_name: String, role: Option<Role>) -> DB {
+        let engine = Engine::new(dir, file_name);
         let role = role.unwrap_or_default();
         DB {
             shard: Arc::new(RwLock::new(Shard {
@@ -122,6 +121,16 @@ impl DB {
     pub async fn sync_replication(&self, sync: Synchronization) {
         let mut shard = self.shard.write().await;
         shard.role.replicate_data(Command::Synchronization(sync)).await;
+    }
+
+    pub async fn dir(&self) -> String {
+        let shard = self.shard.read().await;
+        shard.engine.dir()
+    }
+
+    pub async fn file_name(&self) -> String {
+        let shard = self.shard.read().await;
+        shard.engine.file_name()
     }
 }
 

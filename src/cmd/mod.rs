@@ -6,6 +6,7 @@ mod info;
 mod replconf;
 mod psync;
 mod wait;
+mod config;
 
 
 use crate::resp::Type;
@@ -25,6 +26,7 @@ pub enum Command {
     ReplConf(replconf::ReplConf),
     PSync(psync::PSync),
     Wait(wait::Wait),
+    Config(config::Config),
 }
 
 
@@ -42,7 +44,8 @@ impl TryFrom<Type> for Command {
             "REPLCONF" => Command::ReplConf((&mut parse).try_into()?),
             "PSYNC" => Command::PSync((&mut parse).try_into()?),
             "WAIT" => Command::Wait((&mut parse).try_into()?),
-            _ => unimplemented!(),
+            "CONFIG" => Command::Config((&mut parse).try_into()?),
+            _ => return Err(format!("Unsupported command: {}", command_name).into())
         };
         parse.finish()?;
         Ok(command)
@@ -61,6 +64,7 @@ impl Applicable for Command {
             Command::ReplConf(replconf) => replconf.apply(dst).await,
             Command::PSync(psync) => psync.apply(dst).await,
             Command::Wait(wait) => wait.apply(dst).await,
+            Command::Config(config) => config.apply(dst).await,
         }
     }
 }

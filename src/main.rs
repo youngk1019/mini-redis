@@ -1,4 +1,3 @@
-use std::path::Path;
 use tokio::net::TcpListener;
 use clap::Parser;
 use redis_starter_rust::{listener, db, replication};
@@ -28,7 +27,6 @@ async fn main() -> redis_starter_rust::Result<()> {
     if let Some(replica) = cfg.replica {
         role = Some(replication::role::Role::new_slave(cfg.port, replica[0].clone(), replica[1].parse().unwrap()));
     }
-    let rdb_path = Path::new(&cfg.dir).join(&cfg.dbfilename);
-    let db = db::DB::new(rdb_path, role);
+    let db = db::DB::new(cfg.dir, cfg.dbfilename, role);
     listener::Listener::new(db, listener).run().await
 }
