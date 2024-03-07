@@ -7,6 +7,7 @@ mod replconf;
 mod psync;
 mod wait;
 mod config;
+mod keys;
 
 
 use crate::resp::Type;
@@ -27,6 +28,7 @@ pub enum Command {
     PSync(psync::PSync),
     Wait(wait::Wait),
     Config(config::Config),
+    Keys(keys::Keys),
 }
 
 
@@ -45,6 +47,7 @@ impl TryFrom<Type> for Command {
             "PSYNC" => Command::PSync((&mut parse).try_into()?),
             "WAIT" => Command::Wait((&mut parse).try_into()?),
             "CONFIG" => Command::Config((&mut parse).try_into()?),
+            "KEYS" => Command::Keys((&mut parse).try_into()?),
             _ => return Err(format!("Unsupported command: {}", command_name).into())
         };
         parse.finish()?;
@@ -65,6 +68,7 @@ impl Applicable for Command {
             Command::PSync(psync) => psync.apply(dst).await,
             Command::Wait(wait) => wait.apply(dst).await,
             Command::Config(config) => config.apply(dst).await,
+            Command::Keys(keys) => keys.apply(dst).await,
         }
     }
 }

@@ -25,8 +25,8 @@ struct Shard {
 }
 
 impl DB {
-    pub fn new(dir: String, file_name: String, role: Option<Role>) -> DB {
-        let engine = Engine::new(dir, file_name);
+    pub async fn new(dir: String, file_name: String, role: Option<Role>) -> DB {
+        let engine = Engine::new(dir, file_name).await;
         let role = role.unwrap_or_default();
         DB {
             shard: Arc::new(RwLock::new(Shard {

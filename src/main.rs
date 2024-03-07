@@ -27,6 +27,6 @@ async fn main() -> redis_starter_rust::Result<()> {
     if let Some(replica) = cfg.replica {
         role = Some(replication::role::Role::new_slave(cfg.port, replica[0].clone(), replica[1].parse().unwrap()));
     }
-    let db = db::DB::new(cfg.dir, cfg.dbfilename, role);
+    let db = db::DB::new(cfg.dir, cfg.dbfilename, role).await;
     listener::Listener::new(db, listener).run().await
 }

@@ -39,7 +39,7 @@ struct Entry {
 }
 
 impl Engine {
-    pub(crate) fn new(dir: String, file_name: String) -> Engine {
+    pub(crate) async fn new(dir: String, file_name: String) -> Engine {
         let shard = Arc::new(Shard {
             dir: dir.clone(),
             file_name: file_name.clone(),
@@ -53,8 +53,12 @@ impl Engine {
             }),
             background_task: Notify::new(),
         });
-        tokio::spawn(purge_expired_tasks(shard.clone()));
-        Engine { shard }
+        let engine = Engine { shard: shard.clone() };
+        if shard.path.exists() {
+            engine.load_rdb().await.unwrap();
+        }
+        tokio::spawn(purge_expired_tasks(shard));
+        engine
     }
 
     pub(crate) async fn get(&self, key: String) -> Option<Bytes> {
