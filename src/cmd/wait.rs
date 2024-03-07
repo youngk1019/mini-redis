@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::time::Duration;
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
@@ -11,7 +12,7 @@ use crate::resp::Type;
 pub struct Wait {
     command_size: u64,
     num_replicas: u64,
-    timeout: Duration,
+    timeout: Option<Duration>,
 }
 
 impl TryFrom<&mut Parse> for Wait {
@@ -19,15 +20,17 @@ impl TryFrom<&mut Parse> for Wait {
     fn try_from(parse: &mut Parse) -> crate::Result<Self> {
         let num_replicas = parse.next_int()?;
         let timeout = parse.next_int()?;
-        Ok(Wait { command_size: parse.command_size(), num_replicas, timeout: Duration::from_millis(timeout) })
+        let timeout = if timeout == 0 { None } else { Some(Duration::from_millis(timeout)) };
+        Ok(Wait { command_size: parse.command_size(), num_replicas, timeout })
     }
 }
 
 #[async_trait]
 impl Applicable for Wait {
     async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
-        let sync = Synchronization::new(self.timeout, self.num_replicas);
+        let sync = Synchronization::new(self.timeout, min(dst.db().slave_count().await, self.num_replicas));
         dst.db().sync_replication(sync.clone()).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
         sync.wait().await;
         let resp = Type::Integer(sync.have_finish());
         dst.write_all(Encoder::encode(&resp).as_slice()).await?;

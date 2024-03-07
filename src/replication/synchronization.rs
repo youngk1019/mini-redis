@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use tokio::sync::Notify;
 
 #[derive(Clone)]
@@ -10,12 +11,12 @@ pub struct Synchronization {
 struct Shard {
     need_finish: u64,
     have_finish: AtomicU64,
-    timeout: std::time::Duration,
+    timeout: Option<Duration>,
     notify: Notify,
 }
 
 impl Synchronization {
-    pub fn new(timeout: std::time::Duration, need_finish: u64) -> Self {
+    pub fn new(timeout: Option<Duration>, need_finish: u64) -> Self {
         Synchronization {
             shard: Arc::new(Shard {
                 need_finish,
@@ -42,7 +43,14 @@ impl Synchronization {
             if self.shard.have_finish.load(Ordering::Relaxed) >= self.shard.need_finish {
                 return;
             } else {
-                tokio::time::sleep(self.shard.timeout).await;
+                match self.shard.timeout {
+                    Some(timeout) => tokio::time::sleep(timeout).await,
+                    None => {
+                        loop {
+                            tokio::time::sleep(Duration::from_secs(u64::MAX)).await;
+                        }
+                    }
+                }
             }
         };
         tokio::select! {

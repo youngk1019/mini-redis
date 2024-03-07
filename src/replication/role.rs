@@ -120,6 +120,16 @@ impl Role {
             Type::Slave(_) => {}
         }
     }
+
+    pub async fn slave_count(&self) -> u64 {
+        match &self.shard.role_type {
+            Type::Master(info) => {
+                let slaves = info.slaves.lock().await;
+                slaves.len() as u64
+            }
+            Type::Slave(_) => 0,
+        }
+    }
 }
 
 impl Default for Role {

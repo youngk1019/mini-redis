@@ -114,6 +114,11 @@ impl DB {
         shard.role.delete_slave(key).await;
     }
 
+    pub async fn slave_count(&self) -> u64 {
+        let shard = self.shard.read().await;
+        shard.role.slave_count().await
+    }
+
     pub async fn sync_replication(&self, sync: Synchronization) {
         let mut shard = self.shard.write().await;
         shard.role.replicate_data(Command::Synchronization(sync)).await;
