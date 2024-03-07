@@ -10,14 +10,16 @@ use crate::resp::Type;
 pub struct ReplConf {
     command_size: u64,
     port: Option<usize>,
-    ack: bool,
+    ask_ack: bool,
+    offset: u64,
 }
 
 impl TryFrom<&mut Parse> for ReplConf {
     type Error = crate::Error;
     fn try_from(parse: &mut Parse) -> crate::Result<Self> {
         let mut port = None;
-        let mut ack = false;
+        let mut ask_ack = false;
+        let mut offset = 0;
         loop {
             match parse.next_string() {
                 Ok(msg) => {
@@ -28,7 +30,10 @@ impl TryFrom<&mut Parse> for ReplConf {
                         }
                         "GETACK" => {
                             let _ack = parse.next_string()?;
-                            ack = true;
+                            ask_ack = true;
+                        }
+                        "ACK" => {
+                            offset = parse.next_int()?;
                         }
                         _ => {}
                     }
@@ -38,12 +43,19 @@ impl TryFrom<&mut Parse> for ReplConf {
                         ReplConf {
                             command_size: parse.command_size(),
                             port,
-                            ack,
+                            ask_ack,
+                            offset,
                         });
                 }
                 Err(e) => { return Err(e.into()); }
             }
         }
+    }
+}
+
+impl ReplConf {
+    pub fn offset(&self) -> u64 {
+        self.offset
     }
 }
 
@@ -55,7 +67,7 @@ impl Applicable for ReplConf {
             let resp = Type::SimpleString("OK".to_string());
             dst.write_all(Encoder::encode(&resp).as_slice()).await?;
             dst.flush().await?;
-        } else if self.ack {
+        } else if self.ask_ack {
             let resp = Type::Array(vec![
                 Type::BulkString("REPLCONF".into()),
                 Type::BulkString("ACK".into()),

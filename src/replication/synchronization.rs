@@ -38,6 +38,10 @@ impl Synchronization {
         self.shard.have_finish.load(Ordering::Relaxed)
     }
 
+    pub fn timeout(&self) -> Option<Duration> {
+        self.shard.timeout
+    }
+
     pub async fn wait(&self) {
         let timeout_wait = async {
             if self.shard.have_finish.load(Ordering::Relaxed) >= self.shard.need_finish {

@@ -1,5 +1,9 @@
+use std::cmp::max;
+use std::time::Duration;
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
+use tokio::time::Instant;
+use crate::cmd;
 use crate::connection::{Applicable, Connection};
 use crate::encoder::Encoder;
 use crate::parser::Parse;
@@ -35,8 +39,8 @@ impl Applicable for PSync {
         if let Some(socket) = dst.socket_addr() {
             let role = dst.db().role().await;
             let key = socket + &*dst.id();
-            let offset: u64 = 0;
-            let resp = Type::SimpleString(format!("FULLRESYNC {} {}", role.id(), offset));
+            let (mut now_offset, mut need_offset) = (0u64, 0u64);
+            let resp = Type::SimpleString(format!("FULLRESYNC {} {}", role.id(), now_offset));
             dst.write_all(Encoder::encode(&resp).as_slice()).await?;
             let db = dst.db().clone();
             let mut rx = db.add_slave(key.clone(), dst).await?;
@@ -47,11 +51,25 @@ impl Applicable for PSync {
                             if let Some(cmd) = cmd {
                                 match cmd {
                                     Command::Simple(simple) => {
+                                        need_offset += simple.data().len() as u64;
                                         dst.write_all(simple.data()).await?;
                                         dst.flush().await?
                                     }
                                     Command::Synchronization(sync) => {
-                                        sync.finish();
+                                        let timeout = sync.timeout();
+                                        let now = Instant::now();
+                                        while need_offset > now_offset {
+                                            need_offset += 37; // len of "REPLCONF GETACK *"
+                                            now_offset = max(now_offset, update_offset(dst, timeout).await?);
+                                            if let Some(timeout) = timeout {
+                                                if now.elapsed() > timeout {
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if need_offset <= now_offset{
+                                            sync.finish();
+                                        }
                                     }
                                 }
                             } else {
@@ -59,7 +77,7 @@ impl Applicable for PSync {
                             }
                         }
                         _ = dst.read_frame() => {
-                            // TODO: handle the case where the slave sends a command to the master
+                            // nothing need to do
                         }
                     }
                 }
@@ -70,4 +88,28 @@ impl Applicable for PSync {
         }
         Ok(())
     }
+}
+
+pub async fn update_offset(dst: &mut Connection, timeout: Option<Duration>) -> crate::Result<u64> {
+    let mut offset = 0u64;
+    let req = Type::Array(vec![
+        Type::BulkString("REPLCONF".into()),
+        Type::BulkString("GETACK".into()),
+        Type::BulkString("*".into()),
+    ]);
+    dst.write_all(Encoder::encode(&req).as_slice()).await?;
+    dst.flush().await?;
+    tokio::select! {
+        cmd = dst.read_frame() => {
+            if let Ok(Some(cmd)) = cmd {
+                if let Ok(cmd) = cmd::Command::try_from(cmd) {
+                    if let cmd::Command::ReplConf(replconf) = cmd {
+                        offset = replconf.offset();
+                    }
+                }
+            }
+        }
+        _ = tokio::time::sleep(timeout.unwrap_or(Duration::from_secs(u64::MAX))) => {}
+    }
+    Ok(offset)
 }

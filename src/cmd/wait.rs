@@ -30,7 +30,6 @@ impl Applicable for Wait {
     async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
         let sync = Synchronization::new(self.timeout, min(dst.db().slave_count().await, self.num_replicas));
         dst.db().sync_replication(sync.clone()).await;
-        tokio::time::sleep(Duration::from_millis(10)).await;
         sync.wait().await;
         let resp = Type::Integer(sync.have_finish());
         dst.write_all(Encoder::encode(&resp).as_slice()).await?;
