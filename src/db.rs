@@ -54,13 +54,17 @@ impl DB {
         }
     }
 
-    #[allow(dead_code)]
-    pub async fn del(&mut self, key: String) -> bool {
+    pub async fn del(&mut self, keys: Vec<String>) -> u64 {
         let mut shard = self.shard.write().await;
-        shard.engine.del(key).await
+        let mut count = 0u64;
+        for key in keys.into_iter() {
+            if shard.engine.del(key).await {
+                count += 1;
+            }
+        }
+        return count;
     }
 
-    #[allow(dead_code)]
     pub async fn keys(&self) -> Vec<String> {
         let shard = self.shard.read().await;
         shard.engine.keys().await

@@ -8,6 +8,7 @@ mod psync;
 mod wait;
 mod config;
 mod keys;
+mod del;
 
 
 use crate::resp::Type;
@@ -23,6 +24,7 @@ pub enum Command {
     Echo(echo::Echo),
     Set(set::Set),
     Get(get::Get),
+    Del(del::DEL),
     Info(info::Info),
     ReplConf(replconf::ReplConf),
     PSync(psync::PSync),
@@ -42,6 +44,7 @@ impl TryFrom<Type> for Command {
             "ECHO" => Command::Echo((&mut parse).try_into()?),
             "SET" => Command::Set((&mut parse).try_into()?),
             "GET" => Command::Get((&mut parse).try_into()?),
+            "DEL" => Command::Del((&mut parse).try_into()?),
             "INFO" => Command::Info((&mut parse).try_into()?),
             "REPLCONF" => Command::ReplConf((&mut parse).try_into()?),
             "PSYNC" => Command::PSync((&mut parse).try_into()?),
@@ -63,6 +66,7 @@ impl Applicable for Command {
             Command::Echo(echo) => echo.apply(dst).await,
             Command::Set(set) => set.apply(dst).await,
             Command::Get(get) => get.apply(dst).await,
+            Command::Del(del) => del.apply(dst).await,
             Command::Info(info) => info.apply(dst).await,
             Command::ReplConf(replconf) => replconf.apply(dst).await,
             Command::PSync(psync) => psync.apply(dst).await,
