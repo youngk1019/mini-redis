@@ -4,8 +4,10 @@ use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 use crate::connection::{Applicable, Connection};
 use crate::encoder::Encoder;
+use crate::engine::DataType;
 use crate::parser::{self, Parse};
 use crate::resp::Type;
+use crate::engine::string;
 
 #[derive(Debug, PartialEq)]
 pub struct Set {
@@ -45,7 +47,7 @@ impl Applicable for Set {
             return Ok(());
         }
         dst.db().role().await.add_offset(self.command_size);
-        dst.db().set(self.key, self.value, self.expire).await;
+        dst.db().set(self.key, DataType::String(string::String::new(self.value)), self.expire).await;
         if dst.db().role().await.is_master() {
             let resp = Type::SimpleString("OK".to_string());
             dst.write_all(Encoder::encode(&resp).as_slice()).await?;

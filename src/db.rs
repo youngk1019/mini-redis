@@ -1,12 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
-use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
 use crate::connection;
 use crate::encoder::Encoder;
-use crate::engine::Engine;
+use crate::engine::{DataType, Engine};
 use crate::replication::command::Command;
 use crate::replication::role::Role;
 use crate::replication::simple::Simple;
@@ -36,20 +35,16 @@ impl DB {
         }
     }
 
-    pub async fn get(&self, key: String) -> Option<Bytes> {
+    pub async fn get(&self, key: String) -> Option<DataType> {
         let shard = self.shard.read().await;
         shard.engine.get(key).await
     }
 
-    pub async fn set(&mut self, key: String, value: Bytes, expire: Option<Duration>) {
+    pub async fn set(&mut self, key: String, value: DataType, expire: Option<Duration>) {
         let mut shard = self.shard.write().await;
         shard.engine.set(key.clone(), value.clone(), expire).await;
         if shard.role.is_master() {
-            let data = Encoder::encode(&Type::Array(vec![
-                Type::BulkString("SET".into()),
-                Type::BulkString(key.into()),
-                Type::BulkString(value),
-            ]));
+            let data = Encoder::encode(&value.encode_with_key(key));
             shard.role.replicate_data(Command::Simple(Simple::new(data.into()))).await;
         }
     }

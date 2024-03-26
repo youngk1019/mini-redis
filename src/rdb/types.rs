@@ -14,6 +14,6 @@ pub enum Type {
     String(String, Bytes), // key, value
     List(String, Vec<Bytes>), // key, values
     Set(String, Vec<Bytes>), // key, values
-    SortedSet(String, Vec<(Bytes, f64)>), // key, values(value, score
+    SortedSet(String, Vec<(Bytes, f64)>), // key, values(value, score)
     Hash(String, Vec<(Bytes, Bytes)>), // key, values(field, value)
 }

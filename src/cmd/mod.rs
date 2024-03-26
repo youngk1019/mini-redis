@@ -2,19 +2,18 @@ mod ping;
 mod echo;
 mod set;
 mod get;
+mod del;
 mod info;
 mod replconf;
 mod psync;
 mod wait;
 mod config;
 mod keys;
-mod del;
-
-
-use crate::resp::Type;
+mod types;
 
 use std::convert::TryFrom;
 use async_trait::async_trait;
+use crate::resp::Type;
 use crate::connection::Applicable;
 use crate::parser::Parse;
 
@@ -26,6 +25,7 @@ pub enum Command {
     Get(get::Get),
     Del(del::DEL),
     Info(info::Info),
+    Type(types::Type),
     ReplConf(replconf::ReplConf),
     PSync(psync::PSync),
     Wait(wait::Wait),
@@ -46,6 +46,7 @@ impl TryFrom<Type> for Command {
             "GET" => Command::Get((&mut parse).try_into()?),
             "DEL" => Command::Del((&mut parse).try_into()?),
             "INFO" => Command::Info((&mut parse).try_into()?),
+            "TYPE" => Command::Type((&mut parse).try_into()?),
             "REPLCONF" => Command::ReplConf((&mut parse).try_into()?),
             "PSYNC" => Command::PSync((&mut parse).try_into()?),
             "WAIT" => Command::Wait((&mut parse).try_into()?),
@@ -68,6 +69,7 @@ impl Applicable for Command {
             Command::Get(get) => get.apply(dst).await,
             Command::Del(del) => del.apply(dst).await,
             Command::Info(info) => info.apply(dst).await,
+            Command::Type(r#type) => r#type.apply(dst).await,
             Command::ReplConf(replconf) => replconf.apply(dst).await,
             Command::PSync(psync) => psync.apply(dst).await,
             Command::Wait(wait) => wait.apply(dst).await,

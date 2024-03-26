@@ -1,3 +1,5 @@
+pub(crate) mod string;
+
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,6 +12,46 @@ use tokio::time::Instant;
 use crate::rdb::serializer::Serializer;
 use crate::rdb::{self, types::Order};
 use crate::rdb::parser::Parser;
+use crate::resp;
+
+#[derive(Debug, Clone)]
+pub enum DataType {
+    String(string::String),
+}
+
+impl From<DataType> for Bytes {
+    fn from(data: DataType) -> Bytes {
+        match data {
+            DataType::String(string) => Bytes::from(string),
+        }
+    }
+}
+
+impl DataType {
+    pub(crate) fn encode_with_key(&self, key: String) -> resp::Type {
+        match self {
+            DataType::String(string) => {
+                resp::Type::Array(vec![
+                    resp::Type::BulkString("SET".into()),
+                    resp::Type::BulkString(key.into()),
+                    string.encode(),
+                ])
+            }
+        }
+    }
+
+    pub(crate) fn encode(&self) -> resp::Type {
+        match self {
+            DataType::String(string) => string.encode(),
+        }
+    }
+
+    pub(crate) fn type_name(&self) -> &'static str {
+        match self {
+            DataType::String(_) => "string",
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Engine {
@@ -34,7 +76,7 @@ struct KV {
 
 #[derive(Debug)]
 struct Entry {
-    data: Bytes,
+    data: DataType,
     expiration: Option<Instant>,
 }
 
@@ -61,12 +103,12 @@ impl Engine {
         engine
     }
 
-    pub(crate) async fn get(&self, key: String) -> Option<Bytes> {
+    pub(crate) async fn get(&self, key: String) -> Option<DataType> {
         let kv = self.shard.kv.read().await;
         kv.entries.get(&key).map(|entry| entry.data.clone())
     }
 
-    pub(crate) async fn set(&mut self, key: String, value: Bytes, expire: Option<Duration>) {
+    pub(crate) async fn set(&mut self, key: String, value: DataType, expire: Option<Duration>) {
         let mut kv = self.shard.kv.write().await;
         let mut notify = false;
         let expiration = expire.map(|duration| {
@@ -128,7 +170,7 @@ impl Engine {
         for (key, entry) in kv.entries.iter() {
             serializer.write_order(&Order {
                 dataset: 0,
-                rtype: rdb::types::Type::String(key.clone().into(), entry.data.clone()),
+                rtype: rdb::types::Type::String(key.clone().into(), entry.data.clone().into()),
                 expire: instant_to_system_time(entry.expiration),
             }).await?;
         }
@@ -153,14 +195,14 @@ impl Engine {
         let mut parser = Parser::new(file);
         parser.parse().await?;
         for order in parser.orders().map(|v| v.clone()) {
-            let expiration = match system_time_to_instant(order.expire){
+            let expiration = match system_time_to_instant(order.expire) {
                 Ok(expiration) => expiration,
                 Err(_) => continue,
             };
             let key = match order.rtype {
                 rdb::types::Type::String(key, val) => {
                     kv.entries.insert(key.clone(), Entry {
-                        data: val,
+                        data: DataType::String(string::String::new(val)),
                         expiration,
                     });
                     key
