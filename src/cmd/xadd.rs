@@ -11,7 +11,7 @@ use crate::resp::Type;
 pub struct XAdd {
     command_size: u64,
     key: String,
-    id: (Option<u128>, Option<u64>),
+    id: Option<(u64, Option<u64>)>,
     field: Vec<Bytes>,
 }
 
@@ -22,26 +22,18 @@ impl TryFrom<&mut Parse> for XAdd {
         let id_pattern = parse.next_string()?;
         let id;
         if id_pattern == "*" {
-            id = (None, None);
+            id = None;
         } else {
             let id_parts: Vec<&str> = id_pattern.split('-').collect();
             if id_parts.len() != 2 {
                 return Err("Invalid ID format".into());
             }
-            let (mut time, mut seq) = (None, None);
-            if id_parts[0] != "*" {
-                match id_parts[0].parse() {
-                    Ok(t) => time = Some(t),
-                    Err(_) => return Err("Invalid time format".into()),
-                }
-            }
-            if id_parts[1] != "*" {
-                match id_parts[1].parse() {
-                    Ok(s) => seq = Some(s),
-                    Err(_) => return Err("Invalid seq format".into()),
-                }
-            }
-            id = (time, seq);
+            let seq = if id_parts[1] == "*" {
+                None
+            } else {
+                Some(id_parts[1].parse().map_err(|_| "Invalid seq format")?)
+            };
+            id = Some((id_parts[0].parse().map_err(|_| "Invalid time format")?, seq));
         }
         let mut field = Vec::new();
         loop {

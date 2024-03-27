@@ -12,7 +12,7 @@ pub struct Stream {
 
 #[derive(Debug)]
 struct Shard {
-    entries: RwLock<BTreeMap<(u128, u64), Vec<Bytes>>>,
+    entries: RwLock<BTreeMap<(u64, u64), Vec<Bytes>>>,
 }
 
 impl Stream {
@@ -24,10 +24,11 @@ impl Stream {
         }
     }
 
-    pub async fn add_entry(&self, id: (Option<u128>, Option<u64>), fields: Vec<Bytes>) -> Result<(u128, u64), Error> {
+    pub async fn add_entry(&self, id: Option<(u64, Option<u64>)>, fields: Vec<Bytes>) -> Result<(u64, u64), Error> {
         let mut shard = self.shard.entries.write().await;
         let (last_time, last_seq) = shard.iter().last().map(|(k, _)| k).unwrap_or(&(0, 0)).clone();
-        let time = id.0.unwrap_or(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis());
+        let id = id.unwrap_or((SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64, None));
+        let time = id.0;
         let seq = id.1.unwrap_or(if time <= last_time { last_seq + 1 } else { 0 });
         if time == 0 && seq == 0 {
             return Err(Error::ZeroID);
@@ -42,6 +43,25 @@ impl Stream {
         Ok((time, seq))
     }
 
+    pub async fn range(&self, start: Option<(u64, Option<u64>)>, end: Option<(u64, Option<u64>)>, count: Option<u64>) -> Vec<Entry> {
+        let shard = self.shard.entries.read().await;
+        let mut entries = Vec::new();
+        let start = start.unwrap_or((0, None));
+        let start = (start.0, start.1.unwrap_or(0));
+        let end = end.unwrap_or((u64::MAX, None));
+        let end = (end.0, end.1.unwrap_or(u64::MAX));
+        let mut iter = shard.range(start..=end);
+        while let Some(((time, seq), fields)) = iter.next() {
+            entries.push(Entry::new(*time, *seq, fields.clone()));
+            if let Some(c) = count {
+                if entries.len() >= c as usize {
+                    break;
+                }
+            }
+        }
+        entries
+    }
+
     pub async fn encode(&self) -> resp::Type {
         let shard = self.shard.entries.read().await;
         let mut entries = Vec::new();
@@ -53,13 +73,13 @@ impl Stream {
 }
 
 pub struct Entry {
-    time: u128,
+    time: u64,
     seq: u64,
     fields: Vec<Bytes>,
 }
 
 impl Entry {
-    pub fn new(time: u128, seq: u64, fields: Vec<Bytes>) -> Self {
+    pub fn new(time: u64, seq: u64, fields: Vec<Bytes>) -> Self {
         Entry { time, seq, fields }
     }
 

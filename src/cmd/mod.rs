@@ -11,6 +11,7 @@ mod config;
 mod keys;
 mod types;
 mod xadd;
+mod xrange;
 
 use std::convert::TryFrom;
 use async_trait::async_trait;
@@ -33,6 +34,7 @@ pub enum Command {
     Config(config::Config),
     Keys(keys::Keys),
     XAdd(xadd::XAdd),
+    XRange(xrange::XRange),
 }
 
 
@@ -55,6 +57,7 @@ impl TryFrom<Type> for Command {
             "CONFIG" => Command::Config((&mut parse).try_into()?),
             "KEYS" => Command::Keys((&mut parse).try_into()?),
             "XADD" => Command::XAdd((&mut parse).try_into()?),
+            "XRANGE" => Command::XRange((&mut parse).try_into()?),
             _ => return Err(format!("Unsupported command: {}", command_name).into())
         };
         parse.finish()?;
@@ -79,6 +82,7 @@ impl Applicable for Command {
             Command::Config(config) => config.apply(dst).await,
             Command::Keys(keys) => keys.apply(dst).await,
             Command::XAdd(xadd) => xadd.apply(dst).await,
+            Command::XRange(xrange) => xrange.apply(dst).await,
         }
     }
 }

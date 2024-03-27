@@ -86,7 +86,7 @@ impl DB {
         }
     }
 
-    pub async fn xadd(&self, key: String, id: (Option<u128>, Option<u64>), fields: Vec<Bytes>) -> Result<(u128, u64), Error> {
+    pub async fn xadd(&self, key: String, id: Option<(u64, Option<u64>)>, fields: Vec<Bytes>) -> Result<(u64, u64), Error> {
         let mut shard = self.shard.write().await;
         match shard.engine.get(key.clone()).await {
             Some(DataType::Stream(stream)) => {
@@ -113,6 +113,16 @@ impl DB {
                     shard.role.replicate_data(Command::Simple(Simple::new(data.into()))).await;
                 }
                 Ok(id)
+            }
+            _ => Err(Error::InvalidType),
+        }
+    }
+
+    pub async fn xrange(&self, key: String, start: Option<(u64, Option<u64>)>, end: Option<(u64, Option<u64>)>, count: Option<u64>) -> Result<Vec<Entry>, Error> {
+        let shard = self.shard.read().await;
+        match shard.engine.get(key).await {
+            Some(DataType::Stream(stream)) => {
+                Ok(stream.range(start, end, count).await)
             }
             _ => Err(Error::InvalidType),
         }
