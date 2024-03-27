@@ -176,6 +176,13 @@ impl Type {
             Type::RDBFile(b) => b.len() as u64 + b.len().to_string().len() as u64 + 3,
         }
     }
+
+    pub fn flatten(self) -> Vec<Type> {
+        match self {
+            Type::Array(elements) => elements.into_iter().flat_map(Type::flatten).collect(),
+            _ => vec![self],
+        }
+    }
 }
 
 impl PartialEq<&str> for Type {

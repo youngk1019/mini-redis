@@ -26,8 +26,9 @@ impl Applicable for Get {
             dst.db().role().await.add_offset(self.command_size);
         }
         let resp = match dst.db().get(self.key).await {
-            Some(value) => value.encode(),
-            None => Type::Null,
+            Ok(Some(value)) => value.encode(),
+            Ok(None) => Type::Null,
+            Err(e) => Type::SimpleError(e.to_string()),
         };
         dst.write_all(Encoder::encode(&resp).as_slice()).await?;
         dst.flush().await?;

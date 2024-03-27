@@ -1,10 +1,10 @@
-pub(crate) mod string;
+pub mod string;
+pub mod stream;
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use bytes::Bytes;
 use tokio::sync::{Notify, RwLock};
 use tokio::{fs, time};
 use tokio::io::AsyncWriteExt;
@@ -12,43 +12,18 @@ use tokio::time::Instant;
 use crate::rdb::serializer::Serializer;
 use crate::rdb::{self, types::Order};
 use crate::rdb::parser::Parser;
-use crate::resp;
 
 #[derive(Debug, Clone)]
 pub enum DataType {
     String(string::String),
-}
-
-impl From<DataType> for Bytes {
-    fn from(data: DataType) -> Bytes {
-        match data {
-            DataType::String(string) => Bytes::from(string),
-        }
-    }
+    Stream(stream::Stream),
 }
 
 impl DataType {
-    pub(crate) fn encode_with_key(&self, key: String) -> resp::Type {
-        match self {
-            DataType::String(string) => {
-                resp::Type::Array(vec![
-                    resp::Type::BulkString("SET".into()),
-                    resp::Type::BulkString(key.into()),
-                    string.encode(),
-                ])
-            }
-        }
-    }
-
-    pub(crate) fn encode(&self) -> resp::Type {
-        match self {
-            DataType::String(string) => string.encode(),
-        }
-    }
-
     pub(crate) fn type_name(&self) -> &'static str {
         match self {
             DataType::String(_) => "string",
+            DataType::Stream(_) => "stream",
         }
     }
 }
@@ -168,9 +143,13 @@ impl Engine {
         let mut serializer = Serializer::new(file);
         serializer.init().await?;
         for (key, entry) in kv.entries.iter() {
+            let rtype = match &entry.data {
+                DataType::String(str) => rdb::types::Type::String(key.clone().into(), str.clone().into()),
+                DataType::Stream(_) => { continue; }
+            };
             serializer.write_order(&Order {
                 dataset: 0,
-                rtype: rdb::types::Type::String(key.clone().into(), entry.data.clone().into()),
+                rtype,
                 expire: instant_to_system_time(entry.expiration),
             }).await?;
         }

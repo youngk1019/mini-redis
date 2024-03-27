@@ -25,10 +25,7 @@ impl Applicable for Type {
         if dst.need_update_offset().await {
             dst.db().role().await.add_offset(self.command_size);
         }
-        let resp = match dst.db().get(self.key).await {
-            Some(value) => resp::Type::SimpleString(value.type_name().into()),
-            None => resp::Type::SimpleString("none".into()),
-        };
+        let resp = resp::Type::SimpleString(dst.db().get_type(self.key).await.into());
         dst.write_all(Encoder::encode(&resp).as_slice()).await?;
         dst.flush().await?;
         Ok(())

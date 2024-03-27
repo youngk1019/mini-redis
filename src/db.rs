@@ -1,11 +1,13 @@
 use std::sync::Arc;
 use std::time::Duration;
+use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
 use crate::connection;
 use crate::encoder::Encoder;
-use crate::engine::{DataType, Engine};
+use crate::engine::{DataType, Engine, stream, string};
+use crate::engine::stream::Entry;
 use crate::replication::command::Command;
 use crate::replication::role::Role;
 use crate::replication::simple::Simple;
@@ -35,16 +37,22 @@ impl DB {
         }
     }
 
-    pub async fn get(&self, key: String) -> Option<DataType> {
+    pub async fn get(&self, key: String) -> Result<Option<string::String>, Error> {
         let shard = self.shard.read().await;
-        shard.engine.get(key).await
+        let val = shard.engine.get(key).await;
+        match val {
+            Some(DataType::String(string)) => Ok(Some(string)),
+            None => Ok(None),
+            _ => Err(Error::InvalidType),
+        }
     }
 
-    pub async fn set(&mut self, key: String, value: DataType, expire: Option<Duration>) {
+    pub async fn set(&mut self, key: String, value: Bytes, expire: Option<Duration>) {
         let mut shard = self.shard.write().await;
-        shard.engine.set(key.clone(), value.clone(), expire).await;
+        let val = string::String::new(value);
+        shard.engine.set(key.clone(), DataType::String(val.clone()), expire).await;
         if shard.role.is_master() {
-            let data = Encoder::encode(&value.encode_with_key(key));
+            let data = Encoder::encode(&Operation::Set(key, val).encode());
             shard.role.replicate_data(Command::Simple(Simple::new(data.into()))).await;
         }
     }
@@ -52,10 +60,14 @@ impl DB {
     pub async fn del(&mut self, keys: Vec<String>) -> u64 {
         let mut shard = self.shard.write().await;
         let mut count = 0u64;
-        for key in keys.into_iter() {
-            if shard.engine.del(key).await {
+        for key in keys.iter() {
+            if shard.engine.del(key.clone()).await {
                 count += 1;
             }
+        }
+        if shard.role.is_master() {
+            let data = Encoder::encode(&Operation::Del(keys).encode());
+            shard.role.replicate_data(Command::Simple(Simple::new(data.into()))).await;
         }
         return count;
     }
@@ -63,6 +75,47 @@ impl DB {
     pub async fn keys(&self) -> Vec<String> {
         let shard = self.shard.read().await;
         shard.engine.keys().await
+    }
+
+    pub async fn get_type(&self, key: String) -> &'static str {
+        let shard = self.shard.read().await;
+        let val = shard.engine.get(key).await;
+        match val {
+            Some(val) => val.type_name(),
+            None => "none",
+        }
+    }
+
+    pub async fn xadd(&self, key: String, id: (Option<u128>, Option<u64>), fields: Vec<Bytes>) -> Result<(u128, u64), Error> {
+        let mut shard = self.shard.write().await;
+        match shard.engine.get(key.clone()).await {
+            Some(DataType::Stream(stream)) => {
+                match stream.add_entry(id, fields.clone()).await {
+                    Ok(id) => {
+                        if shard.role.is_master() {
+                            let data = Encoder::encode(&Operation::XAdd(key, Entry::new(id.0, id.1, fields)).encode());
+                            shard.role.replicate_data(Command::Simple(Simple::new(data.into()))).await;
+                        }
+                        Ok(id)
+                    }
+                    Err(e) => Err(Error::StreamError(e)),
+                }
+            }
+            None => {
+                let stream = stream::Stream::new();
+                let id = match stream.add_entry(id, fields.clone()).await {
+                    Ok(id) => id,
+                    Err(e) => return Err(Error::StreamError(e)),
+                };
+                shard.engine.set(key.clone(), DataType::Stream(stream), None).await;
+                if shard.role.is_master() {
+                    let data = Encoder::encode(&Operation::XAdd(key, Entry::new(id.0, id.1, fields)).encode());
+                    shard.role.replicate_data(Command::Simple(Simple::new(data.into()))).await;
+                }
+                Ok(id)
+            }
+            _ => Err(Error::InvalidType),
+        }
     }
 
     pub async fn rdb_sync(&self) -> crate::Result<()> {
@@ -133,4 +186,53 @@ impl DB {
     }
 }
 
+enum Operation {
+    Set(String, string::String),
+    Del(Vec<String>),
+    XAdd(String, Entry),
+}
 
+impl Operation {
+    fn encode(self) -> Type {
+        match self {
+            Operation::Set(key, value) => {
+                Type::Array(vec![
+                    Type::BulkString("SET".into()),
+                    Type::BulkString(key.into()),
+                    value.encode(),
+                ])
+            }
+            Operation::Del(key) => {
+                let mut arr = vec![Type::BulkString("DEL".into())];
+                for k in key.into_iter() {
+                    arr.push(Type::BulkString(k.into()));
+                }
+                Type::Array(arr)
+            }
+            Operation::XAdd(key, entry) => {
+                Type::Array(vec![
+                    Type::BulkString("XADD".into()),
+                    Type::BulkString(key.into()),
+                    entry.encode(),
+                ])
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    InvalidType,
+    StreamError(stream::Error),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::InvalidType => write!(f, "WRONGTYPE Operation against a key holding the wrong kind of value"),
+            Error::StreamError(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl std::error::Error for Error {}

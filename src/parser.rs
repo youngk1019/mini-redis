@@ -18,10 +18,7 @@ pub(crate) enum Error {
 impl Parse {
     pub(crate) fn new(val: Type) -> Parse {
         let command_size = val.len();
-        let array = match val {
-            Type::Array(array) => array,
-            val => vec![val],
-        };
+        let array = val.flatten();
 
         Parse {
             command_size,

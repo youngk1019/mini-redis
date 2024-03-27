@@ -10,6 +10,7 @@ mod wait;
 mod config;
 mod keys;
 mod types;
+mod xadd;
 
 use std::convert::TryFrom;
 use async_trait::async_trait;
@@ -31,6 +32,7 @@ pub enum Command {
     Wait(wait::Wait),
     Config(config::Config),
     Keys(keys::Keys),
+    XAdd(xadd::XAdd),
 }
 
 
@@ -52,6 +54,7 @@ impl TryFrom<Type> for Command {
             "WAIT" => Command::Wait((&mut parse).try_into()?),
             "CONFIG" => Command::Config((&mut parse).try_into()?),
             "KEYS" => Command::Keys((&mut parse).try_into()?),
+            "XADD" => Command::XAdd((&mut parse).try_into()?),
             _ => return Err(format!("Unsupported command: {}", command_name).into())
         };
         parse.finish()?;
@@ -75,6 +78,7 @@ impl Applicable for Command {
             Command::Wait(wait) => wait.apply(dst).await,
             Command::Config(config) => config.apply(dst).await,
             Command::Keys(keys) => keys.apply(dst).await,
+            Command::XAdd(xadd) => xadd.apply(dst).await,
         }
     }
 }
