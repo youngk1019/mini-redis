@@ -47,6 +47,12 @@ Mini-Redis supports the following commands:
 
 - **[KEYS](https://redis.io/commands/keys/)**: List all the keys stored in the database. This command allows users to obtain a snapshot of all the keys currently managed by Mini-Redis, providing insights into the stored data. This command now supports pattern matching.
 
+- **[XADD](https://redis.io/commands/xadd/)**: Append a new entry to a stream. This command is used to add a new message (key value pairs) to a stream, with an auto-generated ID or a given ID. The command returns the ID of the newly added message.
+
+- **[XRANGE](https://redis.io/commands/xrange/)**: Retrieve a range of messages from a stream. This command allows users to fetch messages from a stream within a specified range of IDs. The command returns a list of messages that fall within the specified range.
+
+- **[XREAD](https://redis.io/commands/xread/)**: Read messages from one or more streams. This command reads messages from one or more streams, starting from a specified ID. The command returns a list of messages from the streams. This command also supports blocking reads.
+
 ## Replication
 
 Mini-Redis's replication feature is intricately designed around Redis's master-slave replication protocol, employing a sophisticated blend of [psync](https://redis.io/commands/psync/) and [replconf](https://redis.io/commands/replconf/) commands for seamless data transfer and synchronization. The replication process initiates with the `psync` command, enabling a slave to fetch a snapshot of the dataset from the master through an RDB file. This ensures a base level of consistency between the master and the slave. Post-initial sync, the `psync` command facilitates incremental data updates by transmitting newly executed commands from the master to the slave. Meanwhile, the `replconf` command configures replication settings and ensures robust communication pathways between the master and its slaves. To maintain synchronization accuracy, both master and slave track data offsets, determining the extent of data replication. Additionally, the [wait](https://redis.io/commands/wait/) command serves as a tool for querying the replication status, allowing for a consistency check on the data acknowledged by the slaves. This comprehensive approach, inspired by Redis's proven replication mechanisms, ensures Mini-Redis achieves high levels of data consistency and availability in distributed environments.
