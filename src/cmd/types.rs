@@ -33,9 +33,9 @@ impl Applicable for Type {
 }
 
 impl Type {
-    pub fn new(key: impl ToString) -> Type {
+    pub fn new(command_size: u64, key: impl ToString) -> Type {
         Type {
-            command_size: 0,
+            command_size,
             key: key.to_string(),
         }
     }

@@ -48,7 +48,7 @@ impl Applicable for Info {
 }
 
 impl Info {
-    pub fn new(info: InfoType) -> Info {
-        Info { command_size: 0, info }
+    pub fn new(command_size: u64,info: InfoType) -> Info {
+        Info {command_size, info }
     }
 }

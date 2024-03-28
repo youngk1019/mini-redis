@@ -109,7 +109,7 @@ mod tests {
             Type::BulkString(Bytes::from("ECHO")),
             Type::BulkString(Bytes::from("Hello, world!")),
         ]);
-        let expected = Command::Echo(echo::Echo::new(Bytes::from("Hello, world!")));
+        let expected = Command::Echo(echo::Echo::new(34,Bytes::from("Hello, world!")));
         assert_eq!(Command::try_from(input).unwrap(), expected);
     }
 

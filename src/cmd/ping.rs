@@ -6,7 +6,7 @@ use crate::resp::Type;
 use crate::connection::{Applicable, Connection};
 use crate::encoder::Encoder;
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Ping {
     command_size: u64,
     msg: Option<Bytes>,
@@ -44,7 +44,13 @@ impl Applicable for Ping {
 }
 
 impl Ping {
-    pub fn new(msg: Option<Bytes>) -> Ping {
-        Ping { command_size: 0, msg }
+    pub fn new(command_size: u64, msg: Option<Bytes>) -> Ping {
+        Ping { command_size, msg }
+    }
+}
+
+impl Default for Ping {
+    fn default() -> Self {
+        Ping { command_size: 14, msg: None }
     }
 }

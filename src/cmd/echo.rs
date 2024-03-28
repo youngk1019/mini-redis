@@ -38,7 +38,7 @@ impl Applicable for Echo {
 }
 
 impl Echo {
-    pub fn new(msg: Bytes) -> Echo {
-        Echo { command_size: 0, msg }
+    pub fn new(command_size: u64, msg: Bytes) -> Echo {
+        Echo { command_size, msg }
     }
 }

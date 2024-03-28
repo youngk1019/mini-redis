@@ -37,9 +37,9 @@ impl Applicable for Get {
 }
 
 impl Get {
-    pub fn new(key: impl ToString) -> Get {
+    pub fn new(command_size: u64,key: impl ToString) -> Get {
         Get {
-            command_size: 0,
+            command_size,
             key: key.to_string(),
         }
     }

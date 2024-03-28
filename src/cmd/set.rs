@@ -56,9 +56,9 @@ impl Applicable for Set {
 }
 
 impl Set {
-    pub fn new(key: impl ToString, value: Bytes, expire: Option<Duration>) -> Set {
+    pub fn new(command_size: u64, key: impl ToString, value: Bytes, expire: Option<Duration>) -> Set {
         Set {
-            command_size: 0,
+            command_size,
             key: key.to_string(),
             value,
             expire,
