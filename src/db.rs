@@ -128,6 +128,25 @@ impl DB {
         }
     }
 
+    pub async fn xread(&self, query: Vec<(String, (u64, Option<u64>))>, count: Option<u64>) -> Result<Vec<Vec<Entry>>, Error> {
+        let shard = self.shard.read().await;
+        let (keys, ids): (Vec<String>, Vec<(u64, Option<u64>)>) = query.into_iter().unzip();
+        let mut streams = Vec::new();
+        for key in keys.into_iter() {
+            match shard.engine.get(key).await {
+                Some(DataType::Stream(stream)) => {
+                    streams.push(stream);
+                }
+                _ => return Err(Error::InvalidType),
+            }
+        }
+        let mut entries = Vec::new();
+        for (stream, id) in streams.into_iter().zip(ids.into_iter()) {
+            entries.push(stream.range(Some(id), None, count).await);
+        }
+        Ok(entries)
+    }
+
     pub async fn rdb_sync(&self) -> crate::Result<()> {
         let mut shard = self.shard.write().await;
         shard.engine.write_rdb().await?;
