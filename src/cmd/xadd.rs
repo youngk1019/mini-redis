@@ -12,7 +12,7 @@ pub struct XAdd {
     command_size: u64,
     key: String,
     id: Option<(u64, Option<u64>)>,
-    field: Vec<Bytes>,
+    field: Vec<(Bytes, Bytes)>,
 }
 
 impl TryFrom<&mut Parse> for XAdd {
@@ -38,7 +38,10 @@ impl TryFrom<&mut Parse> for XAdd {
         let mut field = Vec::new();
         loop {
             match parse.next_bytes() {
-                Ok(b) => field.push(b),
+                Ok(key) => {
+                    let val = parse.next_bytes()?;
+                    field.push((key, val));
+                }
                 Err(parser::Error::EndOfStream) => { break; }
                 Err(err) => return Err(err.into()),
             }

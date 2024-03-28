@@ -86,7 +86,7 @@ impl DB {
         }
     }
 
-    pub async fn xadd(&self, key: String, id: Option<(u64, Option<u64>)>, fields: Vec<Bytes>) -> Result<(u64, u64), Error> {
+    pub async fn xadd(&self, key: String, id: Option<(u64, Option<u64>)>, fields: Vec<(Bytes, Bytes)>) -> Result<(u64, u64), Error> {
         let mut shard = self.shard.write().await;
         match shard.engine.get(key.clone()).await {
             Some(DataType::Stream(stream)) => {

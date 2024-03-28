@@ -12,7 +12,7 @@ pub struct Stream {
 
 #[derive(Debug)]
 struct Shard {
-    entries: RwLock<BTreeMap<(u64, u64), Vec<Bytes>>>,
+    entries: RwLock<BTreeMap<(u64, u64), Vec<(Bytes, Bytes)>>>,
 }
 
 impl Stream {
@@ -24,7 +24,7 @@ impl Stream {
         }
     }
 
-    pub async fn add_entry(&self, id: Option<(u64, Option<u64>)>, fields: Vec<Bytes>) -> Result<(u64, u64), Error> {
+    pub async fn add_entry(&self, id: Option<(u64, Option<u64>)>, fields: Vec<(Bytes, Bytes)>) -> Result<(u64, u64), Error> {
         let mut shard = self.shard.entries.write().await;
         let (last_time, last_seq) = shard.iter().last().map(|(k, _)| k).unwrap_or(&(0, 0)).clone();
         let id = id.unwrap_or((SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64, None));
@@ -75,20 +75,21 @@ impl Stream {
 pub struct Entry {
     time: u64,
     seq: u64,
-    fields: Vec<Bytes>,
+    fields: Vec<(Bytes, Bytes)>,
 }
 
 impl Entry {
-    pub fn new(time: u64, seq: u64, fields: Vec<Bytes>) -> Self {
+    pub fn new(time: u64, seq: u64, fields: Vec<(Bytes, Bytes)>) -> Self {
         Entry { time, seq, fields }
     }
 
-    pub fn encode(&self) -> resp::Type {
+    pub fn encode(self) -> resp::Type {
         let mut entry = Vec::new();
         entry.push(resp::Type::BulkString(format!("{}-{}", self.time, self.seq).into()));
         let mut fields = Vec::new();
-        for v in self.fields.iter() {
-            fields.push(resp::Type::BulkString(v.clone()));
+        for v in self.fields.into_iter() {
+            fields.push(resp::Type::BulkString(v.0));
+            fields.push(resp::Type::BulkString(v.1));
         }
         entry.push(resp::Type::Array(fields));
         resp::Type::Array(entry)
