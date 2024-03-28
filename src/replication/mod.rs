@@ -1,6 +1,4 @@
 use bytes::Bytes;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
 use tokio::io::AsyncWriteExt;
 use crate::{connection, resp};
 use crate::encoder::Encoder;
@@ -115,19 +113,4 @@ async fn handshake_psync(con: &mut connection::Connection) -> crate::Result<()> 
         }
         _ => Err("read frame error".into())
     }
-}
-
-pub fn generate_id() -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .filter_map(|b| {
-            let c = b as char;
-            if c.is_ascii_lowercase() || c.is_ascii_digit() {
-                Some(c)
-            } else {
-                None
-            }
-        })
-        .take(40)
-        .collect()
 }

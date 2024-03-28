@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
+use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::RwLock;
 use crate::connection;
@@ -13,6 +14,7 @@ use crate::replication::role::Role;
 use crate::replication::simple::Simple;
 use crate::replication::synchronization::Synchronization;
 use crate::resp::Type;
+use crate::utils::sync::Notifier;
 
 #[derive(Debug, Clone)]
 pub struct DB {
@@ -128,9 +130,9 @@ impl DB {
         }
     }
 
-    pub async fn xread(&self, query: Vec<(String, (u64, Option<u64>))>, count: Option<u64>) -> Result<Vec<Vec<Entry>>, Error> {
+    pub async fn xread(&self, query: Vec<(String, Option<(u64, Option<u64>)>)>, count: Option<u64>, block: Option<u64>) -> Result<Vec<Vec<Entry>>, Error> {
         let shard = self.shard.read().await;
-        let (keys, ids): (Vec<String>, Vec<(u64, Option<u64>)>) = query.into_iter().unzip();
+        let (keys, ids): (Vec<String>, Vec<Option<(u64, Option<u64>)>>) = query.into_iter().unzip();
         let mut streams = Vec::new();
         for key in keys.into_iter() {
             match shard.engine.get(key).await {
@@ -141,10 +143,92 @@ impl DB {
             }
         }
         let mut entries = Vec::new();
-        for (stream, id) in streams.into_iter().zip(ids.into_iter()) {
-            entries.push(stream.range(Some(id), None, count).await);
+        for (stream, id) in streams.iter().zip(ids.into_iter()) {
+            if let Some(id) = id {
+                let id = match id.1 {
+                    Some(seq) => {
+                        if seq == u64::MAX {
+                            (id.0 + 1, Some(0u64))
+                        } else {
+                            (id.0, Some(seq + 1))
+                        }
+                    }
+                    None => (id.0 + 1, None),
+                };
+                entries.push(stream.range(Some(id), None, count).await);
+            }else {
+                entries.push(Vec::new());
+            }
         }
-        Ok(entries)
+        if let Some(block) = block {
+            for entry in entries.iter() {
+                if !entry.is_empty() {
+                    return Ok(entries);
+                }
+            }
+            let mut rx = Vec::new();
+            for stream in streams.iter() {
+                rx.push(stream.listen().await);
+            }
+            drop(shard); // release lock
+            let mut block_entries = Vec::new();
+            for entry in entries.into_iter() {
+                block_entries.push(Arc::new(Mutex::new(entry)));
+            }
+            let mut notifier = Notifier::new();
+            for (((key, rx), stream), entries) in rx.into_iter().zip(streams.into_iter()).zip(block_entries.iter()) {
+                let mut rx = rx;
+                let mut notifier = notifier.clone();
+                let entries = entries.clone();
+                tokio::spawn(async move {
+                    loop {
+                        select! {
+                            _ = notifier.wait() => {
+                                break;
+                            }
+                            entry = rx.recv() => {
+                                match entry {
+                                    Some(entry) => {
+                                        entries.lock().unwrap().push(entry);
+                                        notifier.notify_all();
+                                    }
+                                    None => {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    stream.unlisten(key).await;
+                });
+            }
+            match block {
+                0 => { notifier.wait().await; },
+                block => {
+                    select! {
+                        _ = notifier.wait() => {}
+                        _ = tokio::time::sleep(Duration::from_millis(block)) => {}
+                    }
+                },
+            }
+            let mut entries = Vec::new();
+            for stream in block_entries.into_iter() {
+                if let Some(count) = count {
+                    let mut stream = stream.lock().unwrap();
+                    let len = stream.len();
+                    if len > count as usize {
+                        entries.push(stream.drain(len - count as usize..).collect());
+                    } else {
+                        entries.push(stream.drain(..).collect());
+                    }
+                } else {
+                    entries.push(stream.lock().unwrap().drain(..).collect());
+                }
+            }
+            Ok(entries)
+        } else {
+            Ok(entries)
+        }
     }
 
     pub async fn rdb_sync(&self) -> crate::Result<()> {

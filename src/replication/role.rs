@@ -3,8 +3,8 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{mpsc, Mutex};
+use crate::utils;
 use super::command::Command;
-use super::generate_id;
 
 #[derive(Debug, Clone)]
 pub struct Role {
@@ -46,7 +46,7 @@ impl Role {
                     master_ip,
                     master_port,
                 }),
-                id: generate_id(),
+                id: utils::strings::generate_id(Some(40)),
                 offset: AtomicU64::new(0),
             })
         }
@@ -140,7 +140,7 @@ impl Default for Role {
                     role_type: Type::Master(Master {
                         slaves: Mutex::new(HashMap::new()),
                     }),
-                    id: generate_id(),
+                    id: utils::strings::generate_id(Some(40)),
                     offset: AtomicU64::new(0),
                 }
             )

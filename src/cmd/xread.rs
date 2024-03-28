@@ -11,7 +11,7 @@ use crate::resp::Type;
 pub struct XRead {
     command_size: u64,
     keys: Vec<String>,
-    ids: Vec<(u64, Option<u64>)>,
+    ids: Vec<Option<(u64, Option<u64>)>>,
     count: Option<u64>,
     block: Option<u64>,
 }
@@ -47,14 +47,21 @@ impl TryFrom<&mut Parse> for XRead {
             keys.push(querys[i].clone());
         }
         for i in querys.len() / 2..querys.len() {
+            if querys[i] == "$" {
+                if block.is_none() {
+                    return Err("Invalid XREAD format".into());
+                }
+                ids.push(None);
+                continue;
+            }
             let id_parts: Vec<&str> = querys[i].split('-').collect();
             if id_parts.len() == 1 {
-                ids.push((id_parts[0].parse().map_err(|_| "Invalid time format")?, None));
+                ids.push(Some((id_parts[0].parse().map_err(|_| "Invalid time format")?, None)));
             } else if id_parts.len() != 2 {
                 return Err("Invalid ID format".into());
             } else {
-                ids.push((id_parts[0].parse().map_err(|_| "Invalid time format")?,
-                          Some(id_parts[1].parse().map_err(|_| "Invalid seq format")?)));
+                ids.push(Some((id_parts[0].parse().map_err(|_| "Invalid time format")?,
+                               Some(id_parts[1].parse().map_err(|_| "Invalid seq format")?))));
             }
         }
         Ok(XRead { command_size: parse.command_size(), keys, ids, count, block })
@@ -67,17 +74,24 @@ impl Applicable for XRead {
         if dst.need_update_offset().await {
             dst.db().role().await.add_offset(self.command_size);
         }
-        let resp = match dst.db().xread(self.keys.clone().into_iter().zip(self.ids).collect(), self.count).await {
+        let resp = match dst.db().xread(self.keys.clone().into_iter().zip(self.ids).collect(), self.count, self.block).await {
             Ok(streams) => {
                 let mut arr = Vec::new();
                 for (stream, key) in streams.into_iter().zip(self.keys) {
+                    if stream.is_empty() {
+                        continue;
+                    }
                     let mut stream_arr = Vec::new();
                     for entry in stream {
                         stream_arr.push(entry.encode());
                     }
                     arr.push(Type::Array(vec![Type::BulkString(key.into()), Type::Array(stream_arr)]));
                 }
-                Type::Array(arr)
+                if arr.is_empty() {
+                    Type::Null
+                } else {
+                    Type::Array(arr)
+                }
             }
             Err(e) => Type::SimpleError(e.to_string()),
         };

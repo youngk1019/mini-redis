@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::SystemTime;
 use bytes::Bytes;
-use tokio::sync::RwLock;
-use crate::resp;
+use tokio::sync::{mpsc, RwLock};
+use crate::{resp, utils};
 
 #[derive(Debug, Clone)]
 pub struct Stream {
@@ -13,6 +13,7 @@ pub struct Stream {
 #[derive(Debug)]
 struct Shard {
     entries: RwLock<BTreeMap<(u64, u64), Vec<(Bytes, Bytes)>>>,
+    listener: RwLock<HashMap<String, mpsc::Sender<Entry>>>,
 }
 
 impl Stream {
@@ -20,6 +21,7 @@ impl Stream {
         Stream {
             shard: Arc::new(Shard {
                 entries: RwLock::new(BTreeMap::new()),
+                listener: RwLock::new(HashMap::new()),
             }),
         }
     }
@@ -39,7 +41,12 @@ impl Stream {
         if time <= last_time && seq <= last_seq {
             return Err(Error::InvalidID);
         }
-        shard.insert((time, seq), fields);
+        shard.insert((time, seq), fields.clone());
+        let entry = Entry::new(time, seq, fields);
+        let listeners = self.shard.listener.read().await;
+        for listener in listeners.iter() {
+            let _ = listener.1.send(entry.clone()).await;
+        }
         Ok((time, seq))
     }
 
@@ -62,6 +69,22 @@ impl Stream {
         entries
     }
 
+    pub async fn listen(&self) -> (String, mpsc::Receiver<Entry>) {
+        let (tx, rx) = mpsc::channel(32);
+        let mut listeners = self.shard.listener.write().await;
+        let mut key = utils::strings::generate_id(None);
+        while listeners.contains_key(&key) {
+            key = utils::strings::generate_id(None);
+        }
+        listeners.insert(key.clone(), tx);
+        (key, rx)
+    }
+
+    pub async fn unlisten(&self, key: String) {
+        let mut listeners = self.shard.listener.write().await;
+        listeners.remove(&key);
+    }
+
     pub async fn encode(&self) -> resp::Type {
         let shard = self.shard.entries.read().await;
         let mut entries = Vec::new();
@@ -72,6 +95,7 @@ impl Stream {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Entry {
     time: u64,
     seq: u64,

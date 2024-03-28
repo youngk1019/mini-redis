@@ -9,7 +9,7 @@ use tokio::io;
 use crate::resp::{self, Type};
 use crate::cmd::Command;
 use crate::db::DB;
-use crate::replication;
+use crate::utils;
 
 #[derive(Debug)]
 pub struct Connection {
@@ -120,7 +120,7 @@ impl Connection {
         match &self.id {
             Some(id) => id.clone(),
             None => {
-                let id = replication::generate_id();
+                let id = utils::strings::generate_id(Some(40));
                 self.id = Some(id.clone());
                 id
             }
