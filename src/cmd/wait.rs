@@ -28,7 +28,7 @@ impl TryFrom<&mut Parse> for Wait {
 #[async_trait]
 impl Applicable for Wait {
     async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
-        let sync = Synchronization::new(self.timeout, min(dst.db().slave_count().await, self.num_replicas));
+        let mut sync = Synchronization::new(self.timeout, min(dst.db().slave_count().await, self.num_replicas));
         dst.db().sync_replication(sync.clone()).await;
         sync.wait().await;
         let resp = Type::Integer(sync.have_finish());
