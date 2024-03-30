@@ -60,3 +60,23 @@ Mini-Redis's replication feature is intricately designed around Redis's master-s
 ## Persistence
 
 Mini-Redis incorporates data persistence through the use of the Redis Database (RDB) format, capturing the state of the in-memory database at specified intervals or triggers. This functionality ensures that data is not lost even after the server restarts, providing a robust mechanism for data recovery. The implementation of the RDB format in Mini-Redis closely mirrors that of Redis, supporting a wide range of file formats for serialization. However, one notable deviation from Redis's approach is the exclusion of support for zip-type reading due to the inability to employ copy-on-write during fork operations. Instead of leveraging a fork, which allows Redis to continue serving requests while persisting data, Mini-Redis requires a temporary pause in service to generate the persistence file. This limitation, while divergent from Redis's non-blocking persistence model, opens up avenues for optimization. (By adopting persistent data structures, Mini-Redis can potentially minimize the downtime required for creating persistence snapshots, thus mitigating the impact on service availability.)
+
+## Benchmark
+
+Mini-Redis's performance is evaluated using the [redis-benchmark](https://redis.io/topics/benchmarks) tool.
+
+The benchmark tool is run as follows (The testing environment is M1 Pro 16GB):
+
+```bash
+redis-benchmark -t set,get,xadd -n 100000 -q
+```
+
+The results are as follows:
+
+```bash
+SET: 121506.68 requests per second, p50=0.223 msec
+GET: 133155.80 requests per second, p50=0.207 msec
+XADD: 125786.16 requests per second, p50=0.215 msec
+```
+
+
